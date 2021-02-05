@@ -72,7 +72,6 @@ class TestBasicAuth(unittest.TestCase):
         for group in BasicAuth.DEFAULT_GROUPS:
             self.assertTrue(self.auth.user_in_group("user2", group))
 
-
     def test_good_group_creations(self):
         self.auth.create_groups("group1")
         self.auth.create_groups("group2")
@@ -83,15 +82,31 @@ class TestBasicAuth(unittest.TestCase):
         self.auth.add_user("user123", _GOOD_PASSWORD)
         self.assertTrue(self.auth.validate_user("user123", _GOOD_PASSWORD))
 
+    def test_good_user_in_group(self):
+        self.auth.add_user("test1", _GOOD_PASSWORD)
+        for group in BasicAuth.DEFAULT_GROUPS:
+            self.assertTrue(self.auth.user_in_group("test1", group))
+
+    def test_good_add_user_to_group(self):
+        self.auth.add_user("test1", _GOOD_PASSWORD)
+        self.auth.create_groups("group1")
+        self.auth.add_user_to_groups("test1", "group1")
+        self.assertTrue(self.auth.user_in_group("test1", "group1"))
+
     def test_good_save_and_load(self):
         auth1 = BasicAuth()
         auth1.create_groups("admin", "fileaccess")
         auth1.add_user("user1", _GOOD_PASSWORD, {"admin", "fileaccess"})
+        #print("auth1 users after 1: {}".format(auth1._users))
         auth1.add_user("user2", _GOOD_PASSWORD, {"default"})
+        #print("auth1 users after 2: {}".format(auth1._users))
         auth1.save_to_file(TestBasicAuth.temp_filename)
+        #print("auth1 users after save: {}".format(auth1._users))
 
         auth2 = BasicAuth()
         auth2.load_from_file(TestBasicAuth.temp_filename)
+        
+        #print("auth2 users: {}".format(auth2._users))
 
         self.assertSetEqual(auth1._groups, auth2._groups)
         self.assertDictEqual(auth1._users, auth2._users)
@@ -127,11 +142,11 @@ class TestBasicAuth(unittest.TestCase):
 
     def test_repeated_group_creations(self):
         self.auth.create_groups("first", "second")
-        before_groups = self.auth._groups
+        before_groups = self.auth._groups.copy()
         with self.assertRaises(GroupExistenceException) as context:
             self.auth.create_groups("first")
         self.assertEqual(context.exception.exists, True)
-        after_groups = self.auth._groups
+        after_groups = self.auth._groups.copy()
         self.assertSetEqual(before_groups, after_groups)
 
     def test_invalid_group_creations(self):
@@ -173,6 +188,19 @@ class TestBasicAuth(unittest.TestCase):
 
         self.assertNotEqual(len(auth2._groups), len(auth3._groups))
         self.assertNotEqual(len(auth2._users), len(auth3._users))
+    
+    def test_add_user_to_nonexistent_group(self):
+        self.auth.create_groups("group1")
+        self.auth.add_user("user1", _GOOD_PASSWORD)
+        with self.assertRaises(GroupExistenceException) as context:
+            self.auth.add_user_to_groups("user1", "group2")
+        self.assertEqual(context.exception.exists, False)
+    
+    def test_add_nonexistent_user_to_group(self):
+        self.auth.create_groups("group1")
+        with self.assertRaises(UserExistenceException) as context:
+            self.auth.add_user_to_groups("user1", "group1")
+        self.assertEqual(context.exception.exists, False)
  
 if __name__ == "__main__":
     unittest.main()

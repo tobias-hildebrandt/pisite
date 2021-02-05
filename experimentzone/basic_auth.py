@@ -4,6 +4,7 @@ import passlib.hash
 import json
 import unittest
 import zxcvbn
+import copy
 
 # bcrypt hash $x$y$x
 # x = algorithm
@@ -79,31 +80,19 @@ class BasicAuth:
         if groups is None or len(groups) == 0:
             groups = BasicAuth.DEFAULT_GROUPS
 
-        # verify that groups is a set
         if not isinstance(groups, set):
-            raise TypeError("groups should be a set")
+            raise TypeError("groups must be a set")
 
-        # verify that each group is a string
+        # make sure each group exists
         for group in groups:
-            if not isinstance(group, str):
-                raise TypeError("group should only contain strings")
+            self.assert_group_existence(group, True)
         
-        # verify that username is a string
-        if not isinstance(username, str):
-            raise TypeError("username should be a string")
+        # make sure user does not exist
+        self.assert_user_existence(username, False)
         
         # verify that plaintext_password is a string
         if not isinstance(plaintext_password, str):
             raise TypeError("plaintext_password should be a string")
-
-        # if username already exists, throw exception
-        if username in self._users:
-            raise UserExistenceException(username, True)
-
-        # if a desired group doesn't exist, throw exception
-        for group in groups:
-            if group not in self._groups:
-                raise GroupExistenceException(group, False)
 
         # make sure password is strong enough
         results = zxcvbn.zxcvbn(plaintext_password, user_inputs=[username])
@@ -118,14 +107,20 @@ class BasicAuth:
 
         # print("hash combo: {}\nsalt: {}\npass: {}\n".format(hash_combo,salt,hashed_password))
 
-        # form details dict, convert groups to list to json-ize it to a json array
-        user_details = {'password': hashed_password, 'salt':salt, 'groups': list(groups)}
+        # form details dict, 
+        user = {'password': hashed_password, 'salt': salt, 'groups': set(groups)}
+        
+        # print ("adding user {}".format(user))
+
+        # convert groups to list to json-ize it to a json array
+        user_for_json = copy.deepcopy(user)
+        user_for_json["groups"] = list(user_for_json["groups"])
 
         # try to json-ize it, raise any exceptions on failure to jsonize 
-        json.dumps({username: user_details})
+        json.dumps({username: user_for_json})
 
         # add the user 
-        self._users[username] = user_details
+        self._users[username] = user
 
     def validate_user(self, username, plaintext_password_input) -> bool:
         """
@@ -133,9 +128,8 @@ class BasicAuth:
         Returns True if valid, False if invalid.
         Raises UserExistenceException if user does not exist
         """
-        # if username does not exists, throw exception
-        if username not in self._users:
-            raise UserExistenceException(username, False)
+        # make sure user exists
+        self.assert_user_existence(username, True)
 
         hashed_password_real = self._users[username]["password"]
         salt = self._users[username]["salt"]
@@ -160,12 +154,9 @@ class BasicAuth:
         Raises GroupExistenceException if group does not exist
         Raises TypeError if any group is not a string
         """
-        # verify that all requested groups are strings and don't exist
+        # make sure all requested groups don't exist
         for group in groups:
-            if not isinstance(group, str):
-                raise TypeError("groups should only be strings")
-            if group in self._groups:
-                raise GroupExistenceException(group, True)
+            self.assert_group_existence(group, False)
         
         # add the groups
         self._groups.update(groups)
@@ -176,17 +167,14 @@ class BasicAuth:
         Raises UserExistenceException if user does not exist
         Raises GroupExistenceException if group does not exist
         """
-        # make sure user is valid
-        if user not in self._users:
-            raise UserExistenceException(user, False)
+        # make sure user exists
+        self.assert_user_existence(user, True)
+        # make sure group exists
+        self.assert_group_existence(group, True)
 
-        if not isinstance(group, str):
-            raise TypeError("groups should only be strings")
-        if group not in self._groups:
-            raise GroupExistenceException(group, False)
-        
+        #print("user {}\ngroup {}".format(user, group))
 
-        return group in self._users[user]["groups"]
+        return (group in self._users[user]["groups"])
 
     def add_user_to_groups(self, user, *groups):
         """
@@ -196,17 +184,14 @@ class BasicAuth:
         Raises GroupExistenceException if group does not exist
         Raises TypeError if any group is not a string
         """
-        if user not in self._users:
-            raise UserExistenceException(user, False)
+        # make sure user exists
+        self.assert_user_existence(user, True)
         
         # verify that all requested groups are strings and don't exist
         for group in groups:
-            if not isinstance(group, str):
-                raise TypeError("groups should only be strings")
-            if group not in self._groups:
-                raise GroupExistenceException(group, False)
+            self.assert_group_existence(group, True)
         
-        self._users[user]["groups"].update(*groups)
+        self._users[user]["groups"].add(*groups)
 
     def print_users(self):
         """
@@ -218,10 +203,15 @@ class BasicAuth:
         """
         Saves all user and group information to a file
         """
+        # make sure to turn groups into list so that it can become json array
+        users_for_json = copy.deepcopy(self._users)
+        for user in users_for_json:
+            users_for_json[user]["groups"] = list(users_for_json[user]["groups"])
+
+        groups_for_json = list(copy.deepcopy(self._groups))
 
         with open(filename, 'w') as write_file: # overwrite the file
-            # make sure to turn groups into list so that it can become json array
-            write_file.write(json.dumps({"groups": list(self._groups), "users": self._users}, indent=2))
+            write_file.write(json.dumps({"groups": groups_for_json, "users": users_for_json}, indent=2))
 
     def load_from_file(self, filename):
         """
@@ -231,9 +221,15 @@ class BasicAuth:
             json_data = json.loads(read_file.read())
         
         self._groups = set(json_data["groups"])
-        self._users = json_data["users"]
+        users = json_data["users"]
 
-    # TODO: test and use this
+        for user in users:
+            groups_set = set(users[user]["groups"])
+            users[user]["groups"] = groups_set
+
+        self._users = users
+        
+
     def assert_group_existence(self, group, exists):
         """
         Asserts that a group is valid and exists
@@ -241,9 +237,21 @@ class BasicAuth:
         Raises GroupExistenceException if group does not exist
         """
         if not isinstance(group, str):
-            raise TypeError("groups should only be strings")
-        if group in self._groups == exists:
-            raise GroupExistenceException(group, exists)
+            raise TypeError("group must be a string")
+        if (group in self._groups) != exists:
+            raise GroupExistenceException(group, not exists)
+    
+    def assert_user_existence(self, user, exists):
+        """
+        Asserts that a user is valid and exists
+        Raises TypeError if any group is not a string
+        Raises GroupExistenceException if group does not exist
+        """
+        if not isinstance(user, str):
+            raise TypeError("user must be a string")
+        if (user in self._users) != exists:
+            raise UserExistenceException(user, not exists)
+
 
 if __name__ == "__main__":
     
