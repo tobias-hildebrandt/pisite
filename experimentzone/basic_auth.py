@@ -66,7 +66,7 @@ class BasicAuth:
         # add default groups to _groups
         self._groups.update(BasicAuth.DEFAULT_GROUPS)
     
-    def add_user(self, username, plaintext_password, groups=None):
+    def create_user(self, username, plaintext_password, groups=None):
         """
         Add a user, given a password and list of groups.
         Hashes password using bcrypt.
@@ -85,10 +85,10 @@ class BasicAuth:
 
         # make sure each group exists
         for group in groups:
-            self.assert_group_existence(group, True)
+            self._assert_group_existence(group, True)
         
         # make sure user does not exist
-        self.assert_user_existence(username, False)
+        self._assert_user_existence(username, False)
         
         # verify that plaintext_password is a string
         if not isinstance(plaintext_password, str):
@@ -129,7 +129,7 @@ class BasicAuth:
         Raises UserExistenceException if user does not exist
         """
         # make sure user exists
-        self.assert_user_existence(username, True)
+        self._assert_user_existence(username, True)
 
         hashed_password_real = self._users[username]["password"]
         salt = self._users[username]["salt"]
@@ -156,21 +156,21 @@ class BasicAuth:
         """
         # make sure all requested groups don't exist
         for group in groups:
-            self.assert_group_existence(group, False)
+            self._assert_group_existence(group, False)
         
         # add the groups
         self._groups.update(groups)
 
-    def user_in_group(self, user, group):
+    def is_user_in_group(self, user, group):
         """
         Returns whether or not a user is in a group
         Raises UserExistenceException if user does not exist
         Raises GroupExistenceException if group does not exist
         """
         # make sure user exists
-        self.assert_user_existence(user, True)
+        self._assert_user_existence(user, True)
         # make sure group exists
-        self.assert_group_existence(group, True)
+        self._assert_group_existence(group, True)
 
         #print("user {}\ngroup {}".format(user, group))
 
@@ -185,11 +185,11 @@ class BasicAuth:
         Raises TypeError if any group is not a string
         """
         # make sure user exists
-        self.assert_user_existence(user, True)
+        self._assert_user_existence(user, True)
         
         # verify that all requested groups are strings and don't exist
         for group in groups:
-            self.assert_group_existence(group, True)
+            self._assert_group_existence(group, True)
         
         self._users[user]["groups"].add(*groups)
 
@@ -229,8 +229,7 @@ class BasicAuth:
 
         self._users = users
         
-
-    def assert_group_existence(self, group, exists):
+    def _assert_group_existence(self, group, exists):
         """
         Asserts that a group is valid and exists
         Raises TypeError if any group is not a string
@@ -241,7 +240,7 @@ class BasicAuth:
         if (group in self._groups) != exists:
             raise GroupExistenceException(group, not exists)
     
-    def assert_user_existence(self, user, exists):
+    def _assert_user_existence(self, user, exists):
         """
         Asserts that a user is valid and exists
         Raises TypeError if any group is not a string
