@@ -161,21 +161,6 @@ class BasicAuth:
         # add the groups
         self._groups.update(groups)
 
-    def is_user_in_group(self, user, group):
-        """
-        Returns whether or not a user is in a group
-        Raises UserExistenceException if user does not exist
-        Raises GroupExistenceException if group does not exist
-        """
-        # make sure user exists
-        self._assert_user_existence(user, True)
-        # make sure group exists
-        self._assert_group_existence(group, True)
-
-        #print("user {}\ngroup {}".format(user, group))
-
-        return (group in self._users[user]["groups"])
-
     def add_user_to_groups(self, user, *groups):
         """
         Adds user to groups
@@ -192,6 +177,30 @@ class BasicAuth:
             self._assert_group_existence(group, True)
         
         self._users[user]["groups"].add(*groups)
+
+    def is_user_in_group(self, user, group) -> bool:
+        """
+        Returns whether or not a user is in a group
+        Raises UserExistenceException if user does not exist
+        Raises GroupExistenceException if group does not exist
+        """
+        # make sure user exists
+        self._assert_user_existence(user, True)
+        # make sure group exists
+        self._assert_group_existence(group, True)
+
+        #print("user {}\ngroup {}".format(user, group))
+
+        return (group in self._users[user]["groups"])
+
+    def get_user_groups(self, user) -> set:
+        """
+        Returns a copy of the set of group to which the user belongs
+        Raises UserExistenceException if user does not exist
+        """
+        self._assert_user_existence(user, True)
+
+        return copy.deepcopy(self._users[user]["groups"])
 
     def print_users(self):
         """

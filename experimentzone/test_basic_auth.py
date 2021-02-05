@@ -72,11 +72,21 @@ class TestBasicAuth(unittest.TestCase):
         for group in BasicAuth.DEFAULT_GROUPS:
             self.assertTrue(self.auth.is_user_in_group("user2", group))
 
+    def test_get_user_groups(self):
+        self.auth.create_groups("group1", "group2")
+        self.auth.create_user("user1", _GOOD_PASSWORD, {"group1"})
+        self.auth.add_user_to_groups("user1", "group2")
+        groups = self.auth.get_user_groups("user1")
+
+        expected_groups = {"group1", "group2"}
+
+        self.assertSetEqual(groups, expected_groups)
+
     def test_good_group_creations(self):
         self.auth.create_groups("group1")
         self.auth.create_groups("group2")
-        self.auth.create_groups("group3")
-        self.assertEqual(len(self.auth._groups), 3+len(BasicAuth.DEFAULT_GROUPS)) 
+        self.auth.create_groups("group3", "group4")
+        self.assertEqual(len(self.auth._groups), 4+len(BasicAuth.DEFAULT_GROUPS)) 
     
     def test_good_validation(self):
         self.auth.create_user("user123", _GOOD_PASSWORD)
