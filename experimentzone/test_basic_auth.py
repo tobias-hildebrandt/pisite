@@ -36,6 +36,27 @@ class TestBasicAuth(unittest.TestCase):
     # run after each test    
     def tearDown(self):
         del self.auth
+
+    def test_big_test(self):
+        self.auth.create_groups("group1", "group2", "group3")
+        self.auth.create_user("user1", _GOOD_PASSWORD, {"group1", "group2"})
+        self.auth.create_user("user2", _GOOD_PASSWORD, {"group2"})
+        self.auth.add_user_to_groups("user1", "group3")
+        self.auth.remove_user_from_group("user1", "group3")
+        self.auth.add_user_to_groups("user1", "group3")
+        self.auth.delete_group("group3")
+        self.assertTrue(self.auth.is_user_in_group("user1", "group2"))
+        with self.assertRaises(GroupExistenceException) as context:
+            self.auth.is_user_in_group("user1", "group3")
+        self.assertFalse(context.exception.exists)
+        self.auth.save_to_file(TestBasicAuth.temp_filename)
+        self.auth._users = None
+        self.auth._groups = None
+        self.auth.load_from_file(TestBasicAuth.temp_filename)
+        self.auth.create_user("user3", _GOOD_PASSWORD, {"group1"})
+        self.assertEqual(len(self.auth.get_users_in_group("group1")), 2)
+        self.assertEqual(len(self.auth._users), 3)
+        self.assertEqual(len(self.auth._groups), 2 + len(BasicAuth.DEFAULT_GROUPS))
     
     def test_good_passwords(self):
         self.auth.create_user("user1", _GOOD_PASSWORD)

@@ -246,6 +246,8 @@ class BasicAuth:
 
         for user in self.get_users_in_group(group):
             self.remove_user_from_group(user, group)
+        
+        self._groups.remove(group)
             
     def print_all(self):
         """
