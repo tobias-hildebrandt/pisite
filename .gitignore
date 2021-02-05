@@ -1,3 +1,5 @@
 .vscode/
 venv-pisite/
 *__pycache__*
+*htmlcov*
+*.coverage*
