@@ -189,7 +189,6 @@ class BasicAuth:
 
         user_groups.remove(group)
 
-
     def is_user_in_group(self, user, group) -> bool:
         """
         Returns whether or not a user is in a group
@@ -307,24 +306,3 @@ class BasicAuth:
             raise TypeError("user must be a string")
         if (user in self._users) != exists:
             raise UserExistenceException(user, not exists)
-
-
-if __name__ == "__main__":
-    
-    import os
-    loader = unittest.TestLoader()
-    start_dir = os.path.dirname(os.path.abspath(__file__))
-    suite = loader.discover(start_dir)
-    runner = unittest.TextTestRunner()
-
-    print("\nstarting tests\n")
-    runner.run(suite)
-    print("\ndone with tests\n")
-
-    # auth = BasicAuth()
-    # username = "user123"
-    # password = "HorseCatCowPassword8484848"
-    # auth.add_user(username, password, None)
-    # success = auth.validate_user(username, password)
-    # print("successful auth? {}".format(success))
-    # auth.print_users()
