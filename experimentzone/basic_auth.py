@@ -75,7 +75,7 @@ class BasicAuth:
         Raises GroupExistenceException if any group doesn't exist
         Raises WeakPasswordException if the password is too weak
         """
-
+        # TODO: make groups variadic??
         # if no groups is empty, make sure we assign the user to the default group(s)
         if groups is None or len(groups) == 0:
             groups = BasicAuth.DEFAULT_GROUPS
@@ -177,6 +177,18 @@ class BasicAuth:
             self._assert_group_existence(group, True)
         
         self._users[user]["groups"].add(*groups)
+    
+    def remove_user_from_group(self, user, group):
+        """
+        Removes user from group
+        """
+        self._assert_user_existence(user, True)
+        self._assert_group_existence(group, True)
+
+        user_groups = self.get_user_groups(user)
+
+        user_groups.remove(group)
+
 
     def is_user_in_group(self, user, group) -> bool:
         """
@@ -200,13 +212,47 @@ class BasicAuth:
         """
         self._assert_user_existence(user, True)
 
-        return copy.deepcopy(self._users[user]["groups"])
+        return self._users[user]["groups"]
 
-    def print_users(self):
+    def get_users_in_group(self, group) -> set:
+        """
+        Return a set of copies of users which belong to the group
+        """
+        self._assert_group_existence(group, True)
+
+        grouped_users = set()
+
+        for user in self._users:
+            if group in self._users[user]["groups"]:
+                grouped_users.add(user)
+
+        return grouped_users
+
+    def delete_user(self, user):
+        """
+        Deletes a user
+        Raises UserExistenceException if user does not exist
+        """
+        self._assert_user_existence(user, True)
+        
+        del self._users[user]
+    
+    def delete_group(self, group):
+        """
+        Deletes a group and removes all users from group
+        Raises GroupExistenceException if group does not exist
+        """
+        self._assert_group_existence(group, True)
+
+        for user in self.get_users_in_group(group):
+            self.remove_user_from_group(user, group)
+            
+    def print_all(self):
         """
         Prints all users' usernames, hashed passwords, and groups
         """
         print(self._users)
+        print(self._groups)
 
     def save_to_file(self, filename):
         """

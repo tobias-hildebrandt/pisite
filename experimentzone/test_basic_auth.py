@@ -121,6 +121,49 @@ class TestBasicAuth(unittest.TestCase):
         self.assertSetEqual(auth1._groups, auth2._groups)
         self.assertDictEqual(auth1._users, auth2._users)
 
+    def test_good_delete_user(self):
+        self.auth.create_user("user1", _GOOD_PASSWORD)
+        self.auth.create_groups("group1")
+        self.auth.add_user_to_groups("user1", "group1")
+
+        self.auth.delete_user("user1")
+
+        self.assertEqual(len(self.auth._users), 0)
+        self.assertEqual(len(self.auth._groups), len(BasicAuth.DEFAULT_GROUPS) + 1)
+
+    def test_good_delete_group(self):
+        self.auth.create_groups("group1", "group2")
+        self.auth.create_user("user1", _GOOD_PASSWORD, {"group1", "group2"})
+        self.auth.create_user("user2", _GOOD_PASSWORD, {"group1"})
+
+        self.auth.delete_group("group1")
+
+        user1_expected_groups = set()
+        user1_expected_groups.add("group2")
+
+        self.assertSetEqual(self.auth.get_user_groups("user1"), user1_expected_groups)
+        self.assertSetEqual(self.auth.get_user_groups("user2"), set()) 
+
+    def test_good_get_users_in_group(self):
+        self.auth.create_groups("group1")
+        self.auth.create_user("user1", _GOOD_PASSWORD, {"group1"})
+        self.auth.create_user("user2", _GOOD_PASSWORD, {"group1"})
+        
+        expected_users = {"user1", "user2"}
+        
+        self.assertSetEqual(expected_users, self.auth.get_users_in_group("group1"))
+
+    def test_good_remove_user_from_group(self):
+        self.auth.create_groups("group1", "group2")
+        self.auth.create_user("user1", _GOOD_PASSWORD, {"group1", "group2"})
+
+        self.auth.remove_user_from_group("user1", "group1")
+
+        expected_groups = set()
+        expected_groups.add("group2")
+
+        self.assertSetEqual(self.auth.get_user_groups("user1"), expected_groups)
+
     def test_repeated_username(self):
         self.auth.create_user("sameuser", _GOOD_PASSWORD)
         with self.assertRaises(UserExistenceException):
@@ -211,6 +254,31 @@ class TestBasicAuth(unittest.TestCase):
         with self.assertRaises(UserExistenceException) as context:
             self.auth.add_user_to_groups("user1", "group1")
         self.assertEqual(context.exception.exists, False)
- 
+    
+    def test_delete_nonexistent_user(self):
+        self.auth.create_user("user1", _GOOD_PASSWORD)
+
+        with self.assertRaises(UserExistenceException) as context:
+            self.auth.delete_user("user2")
+        self.assertEqual(context.exception.exists, False)
+
+        self.assertEqual(len(self.auth._users), 1)
+
+    def test_delete_nonexistent_group(self):
+        self.auth.create_groups("group1", "group2")
+
+        with self.assertRaises(GroupExistenceException) as context:
+            self.auth.delete_group("group3")
+        self.assertEqual(context.exception.exists, False)
+
+        expected_groups = set()
+        for group in BasicAuth.DEFAULT_GROUPS:
+            expected_groups.add(group)
+        expected_groups.add("group1")
+        expected_groups.add("group2")
+
+        self.assertSetEqual(self.auth._groups, expected_groups)
+
+
 if __name__ == "__main__":
     unittest.main()
