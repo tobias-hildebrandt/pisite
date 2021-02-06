@@ -6,13 +6,7 @@ import unittest
 import zxcvbn
 import copy
 
-# bcrypt hash $x$y$x
-# x = algorithm
-# y = log_2(rounds) (default "12" for bcrypt, 4<=y<=31)
-# z = 22 chars of salt + 21 chars of hash
-
-#hash = passlib.hash.bcrypt.hash("test123")
-#print(hash)
+# TODO: add permissions to groups?
 
 class Error(Exception):
     """Base class for exceptions in this module."""

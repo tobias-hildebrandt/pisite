@@ -14,20 +14,11 @@ encrypt passwords with passlib/bcrypt
 use a dictionary to store them
 write to text file on change (json format)
 
-# usersfile.txt format:
-delimiter is $
-line.split('$'):
-	0:username
-	1:groups, delimited by commands
-	2-x: bcrypt password hash
-		2:alg (2b)
-		3:rounds
-		4:salt(22 characters)+hash(everything else)
-each line should end with newline (duh?)
-
 # TODO:
-create input validator (line + args)
-change userfile validator to use line validator
+add group permissions to basic_auth
+change directory structure
+see if flask-login is necessary
+build the whole damn web app lmfao
 
 # client -> server communication
 send raw username+password over HTTPS
