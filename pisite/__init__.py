@@ -34,12 +34,13 @@ def create_app(test_config=None):
         
     # TODO: link stuff
 
+    
     @app.route("/hello")
-    def hello():
+    def hello(): # pylint: disable=unused-variable
         return """Hello, World! <a href="index">index</a>"""
 
     @app.route("/")
-    def index():
+    def index(): # pylint: disable=unused-variable
         return render_template("index.html")
 
     app.add_url_rule('/', endpoint='index')
