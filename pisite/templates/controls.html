@@ -1,0 +1,13 @@
+{% extends 'base.html' %}
+
+{% block header %}
+    <h1>{% block title %}Controls{% endblock %}</h1>
+{% endblock %}
+
+{% block content %}
+  <p>{{ customtext }}</p>
+  <form method="post">
+    <label for="input_text">Command: <input name="input_text"></label>
+    <input type="submit" value="Submit">
+  </form>
+{% endblock %} 

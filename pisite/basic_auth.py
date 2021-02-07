@@ -60,7 +60,7 @@ class BasicAuth:
         # add default groups to _groups
         self._groups.update(BasicAuth.DEFAULT_GROUPS)
     
-    def create_user(self, username, plaintext_password, groups=None):
+    def create_user(self, username, plaintext_password, groups=None, force_password=False):
         """
         Add a user, given a password and list of groups.
         Hashes password using bcrypt.
@@ -89,9 +89,10 @@ class BasicAuth:
             raise TypeError("plaintext_password should be a string")
 
         # make sure password is strong enough
-        results = zxcvbn.zxcvbn(plaintext_password, user_inputs=[username])
-        if results["score"] <= 2: # 2 and below is too weak
-            raise WeakPasswordException(results)
+        if not force_password:
+            results = zxcvbn.zxcvbn(plaintext_password, user_inputs=[username])
+            if results["score"] <= 2: # 2 and below is too weak
+                raise WeakPasswordException(results)
         
         # hash the password
         hash_combo = passlib.hash.bcrypt.hash(plaintext_password).split('$')[-1]
