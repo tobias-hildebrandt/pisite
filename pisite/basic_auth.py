@@ -5,46 +5,11 @@ import json
 import unittest
 import zxcvbn
 import copy
+import yaml
 
 # TODO: add permissions to groups?
+# TODO: implement one-time permission keys required for registration
 
-class Error(Exception):
-    """Base class for exceptions in this module."""
-    pass
-
-class UserExistenceException(Error):
-    """Exception raised if a user already exists or does not exist, depending on 'exists' attribute
-
-    Attributes:
-        username -- the username that already exists
-        exists -- whether or not the user exists # TODO: remove? might be useless
-    """
-
-    def __init__(self, username, exists):
-        self.username = username
-        self.exists = exists
-
-class GroupExistenceException(Error):
-    """Exception raised if a group already exists or does not exist, depending on 'exists' attribute
-
-    Attributes:
-        group -- the group that already exists
-        exists -- whether or not the group exists # TODO: remove? might be useless
-    """
-
-    def __init__(self, group, exists):
-        self.group = group
-        self.exists = exists
-
-class WeakPasswordException(Error):
-    """Exception raised if a password is too weak
-
-    Attributes:
-        results -- the results from zxcvbn
-    """
-
-    def __init__(self, results):
-        self.results = results
 
 class BasicAuth:
     """An object that contains all implementation details"""
@@ -56,6 +21,7 @@ class BasicAuth:
         """Constructor that does not read from file, thus is empty"""
         self._users = dict()
         self._groups = set()
+        self._reg_keys = set()
 
         # add default groups to _groups
         self._groups.update(BasicAuth.DEFAULT_GROUPS)
@@ -242,43 +208,30 @@ class BasicAuth:
             self.remove_user_from_group(user, group)
         
         self._groups.remove(group)
-            
+
     def print_all(self):
         """
         Prints all users' usernames, hashed passwords, and groups
         """
         print(self._users)
         print(self._groups)
-
+        
     def save_to_file(self, filename):
         """
         Saves all user and group information to a file
         """
-        # make sure to turn groups into list so that it can become json array
-        users_for_json = copy.deepcopy(self._users)
-        for user in users_for_json:
-            users_for_json[user]["groups"] = list(users_for_json[user]["groups"])
-
-        groups_for_json = list(copy.deepcopy(self._groups))
-
         with open(filename, 'w') as write_file: # overwrite the file
-            write_file.write(json.dumps({"groups": groups_for_json, "users": users_for_json}, indent=2))
+            yaml.dump({"groups": self._groups, "users": self._users}, write_file, indent=2)
 
     def load_from_file(self, filename):
         """
         Clears all information and repopulates with user and group information from file
         """
         with open(filename, 'r') as read_file:
-            json_data = json.loads(read_file.read())
+            data = yaml.load(read_file, Loader=yaml.FullLoader)
         
-        self._groups = set(json_data["groups"])
-        users = json_data["users"]
-
-        for user in users:
-            groups_set = set(users[user]["groups"])
-            users[user]["groups"] = groups_set
-
-        self._users = users
+        self._groups = data["groups"]
+        self._users = data["users"]
         
     def _assert_group_existence(self, group, exists):
         """
@@ -301,3 +254,41 @@ class BasicAuth:
             raise TypeError("user must be a string")
         if (user in self._users) != exists:
             raise UserExistenceException(user, not exists)
+
+class Error(Exception):
+    """Base class for exceptions in this module."""
+    pass
+
+class UserExistenceException(Error):
+    """Exception raised if a user already exists or does not exist, depending on 'exists' attribute
+
+    Attributes:
+        username -- the username that already exists
+        exists -- whether or not the user exists # TODO: remove? might be useless
+    """
+
+    def __init__(self, username, exists):
+        self.username = username
+        self.exists = exists
+
+class GroupExistenceException(Error):
+    """Exception raised if a group already exists or does not exist, depending on 'exists' attribute
+
+    Attributes:
+        group -- the group that already exists
+        exists -- whether or not the group exists # TODO: remove? might be useless
+    """
+
+    def __init__(self, group, exists):
+        self.group = group
+        self.exists = exists
+
+class WeakPasswordException(Error):
+    """Exception raised if a password is too weak
+
+    Attributes:
+        results -- the results from zxcvbn
+    """
+
+    def __init__(self, results):
+        self.results = results
