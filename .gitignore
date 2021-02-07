@@ -3,3 +3,4 @@ venv-pisite/
 *__pycache__*
 *htmlcov*
 *.coverage*
+*.code-workspace
