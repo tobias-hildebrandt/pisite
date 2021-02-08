@@ -53,7 +53,7 @@ def create_app(test_config=None):
     return app
 
 auth = basic_auth.BasicAuth()
-auth.create_user("test", "test", force_password=True)
+auth.create_user("test", "test", force=True)
 
 auth_bp = Blueprint("auth", __name__, url_prefix="/")
 

@@ -1,9 +1,16 @@
 
-from basic_auth import BasicAuth, UserExistenceException, GroupExistenceException, WeakPasswordException, Error # pylint ignore:import-error
+from basic_auth import ( # pylint: disable=import-error
+    BasicAuth, 
+    UserExistenceException, 
+    GroupExistenceException, 
+    WeakPasswordException, 
+    BadRegistrationKeyException,
+    Error) 
 import unittest
 import tempfile
 
 # TODO: test good and bad passwords from some list?
+# TODO: make keys in each test?
 
 _NOT_STRINGS = [
     {"dict": "isn't", "a": "string"},
@@ -38,9 +45,12 @@ class TestBasicAuth(unittest.TestCase):
         del self.auth
 
     def test_big_test(self):
-        self.auth.create_groups("group1", "group2", "group3")
-        self.auth.create_user("user1", _GOOD_PASSWORD, {"group1", "group2"})
-        self.auth.create_user("user2", _GOOD_PASSWORD, {"group2"})
+        groups = {"group1", "group2", "group3"}
+        self.auth.create_groups(*groups)
+        keys = self.auth.create_keys(1, groups={"group1", "group2"})
+        self.auth.create_user("user1", _GOOD_PASSWORD, keys[0])
+        keys = self.auth.create_keys(1, groups={"group2"})
+        self.auth.create_user("user2", _GOOD_PASSWORD, keys[0])
         self.auth.add_user_to_groups("user1", "group3")
         self.auth.remove_user_from_group("user1", "group3")
         self.auth.add_user_to_groups("user1", "group3")
@@ -53,35 +63,37 @@ class TestBasicAuth(unittest.TestCase):
         self.auth._users = None
         self.auth._groups = None
         self.auth.load_from_file(TestBasicAuth.temp_filename)
-        self.auth.create_user("user3", _GOOD_PASSWORD, {"group1"})
+        keys = self.auth.create_keys(1, groups={"group1"})
+        self.auth.create_user("user3", _GOOD_PASSWORD, keys[0])
         self.assertEqual(len(self.auth.get_users_in_group("group1")), 2)
         self.assertEqual(len(self.auth._users), 3)
         self.assertEqual(len(self.auth._groups), 2 + len(BasicAuth._DEFAULT_GROUPS))
+        self.assertEqual(len(self.auth._registration_keys), 0)
     
     def test_good_passwords(self):
-        self.auth.create_user("user1", _GOOD_PASSWORD)
-        self.auth.create_user("user2", "thisIsASecurePassword123@#@#@!")
-        self.auth.create_user("user3", "ljasdhfjkasfdhljkKJHJKHKJHJKHKJ12312213##@#@$%@%")
+        self.auth.create_user("user1", _GOOD_PASSWORD, force=True)
+        self.auth.create_user("user2", "thisIsASecurePassword123@#@#@!", force=True)
+        self.auth.create_user("user3", "ljasdhfjkasfdhljkKJHJKHKJHJKHKJ12312213##@#@$%@%", force=True)
 
     def test_good_usernames(self):
-        self.auth.create_user("user1", _GOOD_PASSWORD)
-        self.auth.create_user("user2", _GOOD_PASSWORD)
-        self.auth.create_user("user3", _GOOD_PASSWORD)
+        self.auth.create_user("user1", _GOOD_PASSWORD, force=True)
+        self.auth.create_user("user2", _GOOD_PASSWORD, force=True)
+        self.auth.create_user("user3", _GOOD_PASSWORD, force=True)
         self.assertEqual(len(self.auth._users), 3)
 
     def test_good_groups(self):
         self.auth.create_groups("admin", "fileaccess")
-        self.auth.create_user("user1", _GOOD_PASSWORD, {"admin", "fileaccess"})
-        self.auth.create_user("user2", _GOOD_PASSWORD, {"default"})
-        self.auth.create_user("user3", _GOOD_PASSWORD, BasicAuth._DEFAULT_GROUPS)
-        self.auth.create_user("user4", _GOOD_PASSWORD, {"admin", "fileaccess"})
-        self.auth.create_user("user5", _GOOD_PASSWORD, {"admin", })
-        self.auth.create_user("user6", _GOOD_PASSWORD, None)
-        self.auth.create_user("user7", _GOOD_PASSWORD)
+        self.auth.create_user("user1", _GOOD_PASSWORD, groups={"admin", "fileaccess"}, force=True)
+        self.auth.create_user("user2", _GOOD_PASSWORD, groups={"default"}, force=True)
+        self.auth.create_user("user3", _GOOD_PASSWORD, groups=BasicAuth._DEFAULT_GROUPS, force=True)
+        self.auth.create_user("user4", _GOOD_PASSWORD, groups={"admin", "fileaccess"}, force=True)
+        self.auth.create_user("user5", _GOOD_PASSWORD, groups={"admin", }, force=True)
+        self.auth.create_user("user6", _GOOD_PASSWORD, groups=None, force=True)
+        self.auth.create_user("user7", _GOOD_PASSWORD, force=True)
     
     def test_user_in_group(self):
         self.auth.create_groups("admin", "fileaccess")
-        self.auth.create_user("user1", _GOOD_PASSWORD, {"admin", "fileaccess"})
+        self.auth.create_user("user1", _GOOD_PASSWORD, groups={"admin", "fileaccess"}, force=True)
 
         self.assertTrue(self.auth.is_user_in_group("user1", "admin"))
         self.assertTrue(self.auth.is_user_in_group("user1", "fileaccess"))
@@ -89,13 +101,13 @@ class TestBasicAuth(unittest.TestCase):
         for group in BasicAuth._DEFAULT_GROUPS:
             self.assertFalse(self.auth.is_user_in_group("user1", group))
 
-        self.auth.create_user("user2", _GOOD_PASSWORD, None)
+        self.auth.create_user("user2", _GOOD_PASSWORD, groups=None, force=True)
         for group in BasicAuth._DEFAULT_GROUPS:
             self.assertTrue(self.auth.is_user_in_group("user2", group))
 
     def test_get_user_groups(self):
         self.auth.create_groups("group1", "group2")
-        self.auth.create_user("user1", _GOOD_PASSWORD, {"group1"})
+        self.auth.create_user("user1", _GOOD_PASSWORD, groups={"group1"}, force=True)
         self.auth.add_user_to_groups("user1", "group2")
         groups = self.auth.get_user_groups("user1")
 
@@ -110,16 +122,16 @@ class TestBasicAuth(unittest.TestCase):
         self.assertEqual(len(self.auth._groups), 4+len(BasicAuth._DEFAULT_GROUPS)) 
     
     def test_good_validation(self):
-        self.auth.create_user("user123", _GOOD_PASSWORD)
+        self.auth.create_user("user123", _GOOD_PASSWORD, force=True)
         self.assertTrue(self.auth.validate_user("user123", _GOOD_PASSWORD))
 
     def test_good_user_in_group(self):
-        self.auth.create_user("test1", _GOOD_PASSWORD)
+        self.auth.create_user("test1", _GOOD_PASSWORD, force=True)
         for group in BasicAuth._DEFAULT_GROUPS:
             self.assertTrue(self.auth.is_user_in_group("test1", group))
 
     def test_good_add_user_to_group(self):
-        self.auth.create_user("test1", _GOOD_PASSWORD)
+        self.auth.create_user("test1", _GOOD_PASSWORD, force=True)
         self.auth.create_groups("group1")
         self.auth.add_user_to_groups("test1", "group1")
         self.assertTrue(self.auth.is_user_in_group("test1", "group1"))
@@ -127,9 +139,9 @@ class TestBasicAuth(unittest.TestCase):
     def test_good_save_and_load(self):
         auth1 = BasicAuth()
         auth1.create_groups("admin", "fileaccess")
-        auth1.create_user("user1", _GOOD_PASSWORD, {"admin", "fileaccess"})
+        auth1.create_user("user1", _GOOD_PASSWORD, groups={"admin", "fileaccess"}, force=True)
         #print("auth1 users after 1: {}".format(auth1._users))
-        auth1.create_user("user2", _GOOD_PASSWORD, {"default"})
+        auth1.create_user("user2", _GOOD_PASSWORD, groups={"default"}, force=True)
         #print("auth1 users after 2: {}".format(auth1._users))
         auth1.save_to_file(TestBasicAuth.temp_filename)
         #print("auth1 users after save: {}".format(auth1._users))
@@ -143,7 +155,7 @@ class TestBasicAuth(unittest.TestCase):
         self.assertDictEqual(auth1._users, auth2._users)
 
     def test_good_delete_user(self):
-        self.auth.create_user("user1", _GOOD_PASSWORD)
+        self.auth.create_user("user1", _GOOD_PASSWORD, force=True)
         self.auth.create_groups("group1")
         self.auth.add_user_to_groups("user1", "group1")
 
@@ -154,8 +166,8 @@ class TestBasicAuth(unittest.TestCase):
 
     def test_good_delete_group(self):
         self.auth.create_groups("group1", "group2")
-        self.auth.create_user("user1", _GOOD_PASSWORD, {"group1", "group2"})
-        self.auth.create_user("user2", _GOOD_PASSWORD, {"group1"})
+        self.auth.create_user("user1", _GOOD_PASSWORD, groups={"group1", "group2"}, force=True)
+        self.auth.create_user("user2", _GOOD_PASSWORD, groups={"group1"}, force=True)
 
         self.auth.delete_group("group1")
 
@@ -167,8 +179,8 @@ class TestBasicAuth(unittest.TestCase):
 
     def test_good_get_users_in_group(self):
         self.auth.create_groups("group1")
-        self.auth.create_user("user1", _GOOD_PASSWORD, {"group1"})
-        self.auth.create_user("user2", _GOOD_PASSWORD, {"group1"})
+        self.auth.create_user("user1", _GOOD_PASSWORD, groups={"group1"}, force=True)
+        self.auth.create_user("user2", _GOOD_PASSWORD, groups={"group1"}, force=True)
         
         expected_users = {"user1", "user2"}
         
@@ -176,7 +188,7 @@ class TestBasicAuth(unittest.TestCase):
 
     def test_good_remove_user_from_group(self):
         self.auth.create_groups("group1", "group2")
-        self.auth.create_user("user1", _GOOD_PASSWORD, {"group1", "group2"})
+        self.auth.create_user("user1", _GOOD_PASSWORD, groups={"group1", "group2"}, force=True)
 
         self.auth.remove_user_from_group("user1", "group1")
 
@@ -217,33 +229,49 @@ class TestBasicAuth(unittest.TestCase):
             self.assertEqual(key_list.count(key), 1)
             self.assertSetEqual(self.auth._registration_keys[key]["groups"], groups)
 
+    def test_good_user_creation_with_key(self):
+        num = 5
+        groups = {"group1", "group2"}
+        self.auth.create_groups(*groups)
+        keys = self.auth.create_keys(num, groups=groups)
+        users = list()
+        for i, key in enumerate(keys):
+           user = self.auth.create_user("user{}".format(i), _GOOD_PASSWORD, key)
+           users.append(user)
+
+        self.assertEqual(len(self.auth._registration_keys), 0)
+        self.assertEqual(len(self.auth._users), num)
+        for group in groups:
+            for user in users:
+                self.assertTrue(self.auth.is_user_in_group(user, group))
+
     def test_repeated_username(self):
-        self.auth.create_user("sameuser", _GOOD_PASSWORD)
+        self.auth.create_user("sameuser", _GOOD_PASSWORD, force=True)
         with self.assertRaises(UserExistenceException):
-            self.auth.create_user("sameuser", _GOOD_PASSWORD)
+            self.auth.create_user("sameuser", _GOOD_PASSWORD, force=True)
         self.assertEqual(len(self.auth._users), 1)
 
     def test_nonstring_usernames(self):
         for obj in _NOT_STRINGS:
             with self.assertRaises(TypeError):
-                self.auth.create_user(obj, _GOOD_PASSWORD)
+                self.auth.create_user(obj, _GOOD_PASSWORD, force=True)
         self.assertEqual(len(self.auth._users), 0)
         
     def test_nonstring_passwords(self):
         for obj in _NOT_STRINGS:
             with self.assertRaises(TypeError):
-                self.auth.create_user("user", obj)
+                self.auth.create_user("user", obj, force=True)
         self.assertEqual(len(self.auth._users), 0)
     
     def test_invalid_groups(self):
         with self.assertRaises(TypeError):
-            self.auth.create_user("user1", _GOOD_PASSWORD, {"this": "should", "fail": "please"})
+            self.auth.create_user("user1", _GOOD_PASSWORD, groups={"this": "should", "fail": "please"}, force=True)
         with self.assertRaises(TypeError):
-            self.auth.create_user("user2", _GOOD_PASSWORD, 123456)
+            self.auth.create_user("user2", _GOOD_PASSWORD, groups=123456, force=True)
         with self.assertRaises(TypeError):
-            self.auth.create_user("user3", _GOOD_PASSWORD, "notagrouplist")
+            self.auth.create_user("user3", _GOOD_PASSWORD, groups="notagrouplist", force=True)
         with self.assertRaises(TypeError):
-            self.auth.create_user("user4", _GOOD_PASSWORD, ["this is a string", 123123, {"this": "isn't a string"}])
+            self.auth.create_user("user4", _GOOD_PASSWORD, groups=["this is a string", 123123, {"this": "isn't a string"}], force=True)
         self.assertEqual(len(self.auth._users), 0)
 
     def test_repeated_group_creations(self):
@@ -268,11 +296,12 @@ class TestBasicAuth(unittest.TestCase):
             "badpassword123"
         ]
         for i, password in enumerate(bad_passwords):
+            key = self.auth.create_keys(1)[0]
             with self.assertRaises(WeakPasswordException):
-                self.auth.create_user("user{}".format(i), password)
+                self.auth.create_user("user{}".format(i), password, key)
     
     def test_bad_validation(self):
-        self.auth.create_user("user1", _GOOD_PASSWORD)
+        self.auth.create_user("user1", _GOOD_PASSWORD, force=True)
         with self.assertRaises(UserExistenceException) as context:
             self.auth.validate_user("user2", "doesn't matter")
         self.assertEqual(context.exception.exists, False)
@@ -283,8 +312,8 @@ class TestBasicAuth(unittest.TestCase):
     def test_load_file_different(self):
         auth1 = BasicAuth()
         auth1.create_groups("admin", "fileaccess")
-        auth1.create_user("user1", _GOOD_PASSWORD, {"admin", "fileaccess"})
-        auth1.create_user("user2", _GOOD_PASSWORD, {"default"})
+        auth1.create_user("user1", _GOOD_PASSWORD, groups={"admin", "fileaccess"}, force=True)
+        auth1.create_user("user2", _GOOD_PASSWORD, groups={"default"}, force=True)
         auth1.save_to_file(TestBasicAuth.temp_filename)
 
         auth2 = BasicAuth()
@@ -297,7 +326,7 @@ class TestBasicAuth(unittest.TestCase):
     
     def test_add_user_to_nonexistent_group(self):
         self.auth.create_groups("group1")
-        self.auth.create_user("user1", _GOOD_PASSWORD)
+        self.auth.create_user("user1", _GOOD_PASSWORD, force=True)
         with self.assertRaises(GroupExistenceException) as context:
             self.auth.add_user_to_groups("user1", "group2")
         self.assertEqual(context.exception.exists, False)
@@ -309,7 +338,7 @@ class TestBasicAuth(unittest.TestCase):
         self.assertEqual(context.exception.exists, False)
     
     def test_delete_nonexistent_user(self):
-        self.auth.create_user("user1", _GOOD_PASSWORD)
+        self.auth.create_user("user1", _GOOD_PASSWORD, force=True)
 
         with self.assertRaises(UserExistenceException) as context:
             self.auth.delete_user("user2")
@@ -355,6 +384,16 @@ class TestBasicAuth(unittest.TestCase):
         self.assertEqual(context.exception.exists, False)
 
         self.assertEqual(len(self.auth._registration_keys), 0)
+
+    def test_create_user_without_key(self):
+        with self.assertRaises(BadRegistrationKeyException):
+            self.auth.create_user("user1", _GOOD_PASSWORD)
+    
+    def test_create_user_with_invalid_key(self):
+        good_key = self.auth.create_keys(1)[0]
+        with self.assertRaises(BadRegistrationKeyException):
+            self.auth.create_user("user1", _GOOD_PASSWORD, good_key+"asdasdasd")
+
 
 if __name__ == "__main__":
     unittest.main()

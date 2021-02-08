@@ -9,9 +9,9 @@ import yaml
 import secrets
 import datetime
 
-# TODO: add permissions to groups?
-# TODO: require key to create user
-# TODO: add changing password, deleting 
+# TODO: add permissions to groups
+# TODO: add changing password
+# TODO: add user information page, displaying groups and group permissions
 
 class BasicAuth:
     """An object that contains all implementation details"""
@@ -32,16 +32,38 @@ class BasicAuth:
         # add default groups to _groups
         self._groups.update(BasicAuth._DEFAULT_GROUPS)
     
-    def create_user(self, username, plaintext_password, groups=None, force_password=False):
+    def create_user(self, username, plaintext_password, reg_key_string=None, groups=None, force=False) -> str:
         """
-        Add a user, given a password and list of groups.
+        Add a user, given a password. Accepts list of groups or uses groups associated with registration key.
+        Returns created user's username # TODO: return user dict?
+        Can force creation without registration key or group list.
+        If registration key is supplied, the account will use the groups associated with the registration key, not the groups parameter.
         Hashes password using bcrypt.
         Only adds a user if everything is successful
         Raises UserExistsException if user already exists or parameters are invalid
         Raises GroupExistenceException if any group doesn't exist
         Raises WeakPasswordException if the password is too weak
+        Raises BadRegistrationKeyException if registration_key is invalid
         """
-        # TODO: make groups variadic??
+        # if not force, make sure reg_key_string is a string
+        if force is False and not isinstance(reg_key_string, str):
+            # if key string is not given
+            if reg_key_string is None:
+                raise BadRegistrationKeyException(reg_key_string)
+            # else key string is given but not a string
+            else:
+                raise TypeError("reg_key_string must be a string, not {}".format(type(reg_key_string)))
+
+        # if given a registration key string, make sure we use the groups associated with said key
+        if reg_key_string is not None:
+            # will raise BadRegistrationKeyException if key doesn't exist
+            try:
+                reg_key = self._registration_keys[reg_key_string]
+            except KeyError:
+                raise BadRegistrationKeyException(reg_key_string)
+            # will throw keyerror if format of self._registration_keys is messed up
+            groups = reg_key["groups"]
+
         # if no groups is empty, make sure we assign the user to the default group(s)
         if groups is None or len(groups) == 0:
             groups = BasicAuth._DEFAULT_GROUPS
@@ -59,13 +81,19 @@ class BasicAuth:
         # verify that plaintext_password is a string
         if not isinstance(plaintext_password, str):
             raise TypeError("plaintext_password should be a string")
-
-        # make sure password is strong enough
-        if not force_password:
+        
+        # only check these things if not forced to create account
+        if not force:
+            # make sure password is strong enough
             results = zxcvbn.zxcvbn(plaintext_password, user_inputs=[username])
             if results["score"] <= 2: # 2 and below is too weak
                 raise WeakPasswordException(results)
-        
+
+            # make sure that the registration key is valid
+            # if a registration key is not given AND force is false, this will raise an exception
+            if not reg_key_string in self._registration_keys:
+                raise BadRegistrationKeyException(reg_key_string)
+
         # hash the password
         hash_combo = passlib.hash.bcrypt.hash(plaintext_password).split('$')[-1]
 
@@ -74,8 +102,8 @@ class BasicAuth:
 
         # print("hash combo: {}\nsalt: {}\npass: {}\n".format(hash_combo,salt,hashed_password))
 
-        # form details dict, 
-        user = {'password': hashed_password, 'salt': salt, 'groups': set(groups)}
+        # form user detail dict
+        user = {"password": hashed_password, "salt": salt, "groups": set(groups), "registration_key": reg_key_string}
         
         # print ("adding user {}".format(user))
 
@@ -88,6 +116,12 @@ class BasicAuth:
 
         # add the user 
         self._users[username] = user
+
+        # invalidate the registration key if given
+        if reg_key_string is not None:
+            del self._registration_keys[reg_key_string]
+        
+        return username
 
     def validate_user(self, username, plaintext_password_input) -> bool:
         """
@@ -287,7 +321,7 @@ class BasicAuth:
         Saves all user and group information to a file
         """
         with open(filename, 'w') as write_file: # overwrite the file
-            yaml.dump({"groups": self._groups, "users": self._users}, write_file, indent=2)
+            yaml.dump({"groups": self._groups, "users": self._users, "registration_keys": self._registration_keys}, write_file, indent=2)
 
     def load_from_file(self, filename):
         """
@@ -298,6 +332,7 @@ class BasicAuth:
         
         self._groups = data["groups"]
         self._users = data["users"]
+        self._registration_keys = data["registration_keys"]
         
     def _assert_group_existence(self, group, exists):
         """
@@ -358,3 +393,13 @@ class WeakPasswordException(Error):
 
     def __init__(self, results):
         self.results = results
+
+class BadRegistrationKeyException(Error):
+    """Exception raised if a registration key is not valid
+
+    Attributes:
+        key -- the invalid key
+    """
+
+    def __init__(self, key):
+        self.key = key
