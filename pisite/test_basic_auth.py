@@ -1,5 +1,5 @@
 
-from basic_auth import BasicAuth, UserExistenceException, GroupExistenceException, WeakPasswordException
+from basic_auth import BasicAuth, UserExistenceException, GroupExistenceException, WeakPasswordException, Error # pylint ignore:import-error
 import unittest
 import tempfile
 
@@ -56,7 +56,7 @@ class TestBasicAuth(unittest.TestCase):
         self.auth.create_user("user3", _GOOD_PASSWORD, {"group1"})
         self.assertEqual(len(self.auth.get_users_in_group("group1")), 2)
         self.assertEqual(len(self.auth._users), 3)
-        self.assertEqual(len(self.auth._groups), 2 + len(BasicAuth.DEFAULT_GROUPS))
+        self.assertEqual(len(self.auth._groups), 2 + len(BasicAuth._DEFAULT_GROUPS))
     
     def test_good_passwords(self):
         self.auth.create_user("user1", _GOOD_PASSWORD)
@@ -73,7 +73,7 @@ class TestBasicAuth(unittest.TestCase):
         self.auth.create_groups("admin", "fileaccess")
         self.auth.create_user("user1", _GOOD_PASSWORD, {"admin", "fileaccess"})
         self.auth.create_user("user2", _GOOD_PASSWORD, {"default"})
-        self.auth.create_user("user3", _GOOD_PASSWORD, BasicAuth.DEFAULT_GROUPS)
+        self.auth.create_user("user3", _GOOD_PASSWORD, BasicAuth._DEFAULT_GROUPS)
         self.auth.create_user("user4", _GOOD_PASSWORD, {"admin", "fileaccess"})
         self.auth.create_user("user5", _GOOD_PASSWORD, {"admin", })
         self.auth.create_user("user6", _GOOD_PASSWORD, None)
@@ -86,11 +86,11 @@ class TestBasicAuth(unittest.TestCase):
         self.assertTrue(self.auth.is_user_in_group("user1", "admin"))
         self.assertTrue(self.auth.is_user_in_group("user1", "fileaccess"))
 
-        for group in BasicAuth.DEFAULT_GROUPS:
+        for group in BasicAuth._DEFAULT_GROUPS:
             self.assertFalse(self.auth.is_user_in_group("user1", group))
 
         self.auth.create_user("user2", _GOOD_PASSWORD, None)
-        for group in BasicAuth.DEFAULT_GROUPS:
+        for group in BasicAuth._DEFAULT_GROUPS:
             self.assertTrue(self.auth.is_user_in_group("user2", group))
 
     def test_get_user_groups(self):
@@ -107,7 +107,7 @@ class TestBasicAuth(unittest.TestCase):
         self.auth.create_groups("group1")
         self.auth.create_groups("group2")
         self.auth.create_groups("group3", "group4")
-        self.assertEqual(len(self.auth._groups), 4+len(BasicAuth.DEFAULT_GROUPS)) 
+        self.assertEqual(len(self.auth._groups), 4+len(BasicAuth._DEFAULT_GROUPS)) 
     
     def test_good_validation(self):
         self.auth.create_user("user123", _GOOD_PASSWORD)
@@ -115,7 +115,7 @@ class TestBasicAuth(unittest.TestCase):
 
     def test_good_user_in_group(self):
         self.auth.create_user("test1", _GOOD_PASSWORD)
-        for group in BasicAuth.DEFAULT_GROUPS:
+        for group in BasicAuth._DEFAULT_GROUPS:
             self.assertTrue(self.auth.is_user_in_group("test1", group))
 
     def test_good_add_user_to_group(self):
@@ -150,7 +150,7 @@ class TestBasicAuth(unittest.TestCase):
         self.auth.delete_user("user1")
 
         self.assertEqual(len(self.auth._users), 0)
-        self.assertEqual(len(self.auth._groups), len(BasicAuth.DEFAULT_GROUPS) + 1)
+        self.assertEqual(len(self.auth._groups), len(BasicAuth._DEFAULT_GROUPS) + 1)
 
     def test_good_delete_group(self):
         self.auth.create_groups("group1", "group2")
@@ -184,6 +184,38 @@ class TestBasicAuth(unittest.TestCase):
         expected_groups.add("group2")
 
         self.assertSetEqual(self.auth.get_user_groups("user1"), expected_groups)
+
+    def test_good_key_creation(self):
+        key = self.auth.create_keys(1)[0]
+        self.assertEqual(len(key), BasicAuth._KEY_LENGTH * 2)
+        self.assertSetEqual(self.auth._registration_keys[key]["groups"], self.auth._DEFAULT_GROUPS)
+        self.assertEqual(len(self.auth._registration_keys), 1)
+
+    def test_good_keys_creation(self):
+        num_of_keys = 10
+        key_list = self.auth.create_keys(num_of_keys)
+
+        self.assertEqual(len(key_list), num_of_keys)
+
+        for key in key_list:
+            self.assertEqual(key_list.count(key), 1)
+            self.assertSetEqual(self.auth._registration_keys[key]["groups"], self.auth._DEFAULT_GROUPS)
+
+        self.assertEqual(len(self.auth._registration_keys), 10)
+
+    def test_good_key_creations_with_group(self):
+        num_of_keys = 10
+        groups = {"group1", "group2"}
+
+        self.auth.create_groups(*groups)
+        
+        key_list = self.auth.create_keys(num_of_keys, groups=groups)
+
+        self.assertEqual(len(key_list), num_of_keys)
+
+        for key in key_list:
+            self.assertEqual(key_list.count(key), 1)
+            self.assertSetEqual(self.auth._registration_keys[key]["groups"], groups)
 
     def test_repeated_username(self):
         self.auth.create_user("sameuser", _GOOD_PASSWORD)
@@ -227,7 +259,7 @@ class TestBasicAuth(unittest.TestCase):
         for obj in _NOT_STRINGS:
             with self.assertRaises(TypeError):
                 self.auth.create_groups(obj)
-        self.assertSetEqual(self.auth._groups, BasicAuth.DEFAULT_GROUPS) 
+        self.assertSetEqual(self.auth._groups, BasicAuth._DEFAULT_GROUPS) 
 
     def test_bad_passwords(self):
         bad_passwords = [
@@ -293,13 +325,36 @@ class TestBasicAuth(unittest.TestCase):
         self.assertEqual(context.exception.exists, False)
 
         expected_groups = set()
-        for group in BasicAuth.DEFAULT_GROUPS:
+        for group in BasicAuth._DEFAULT_GROUPS:
             expected_groups.add(group)
         expected_groups.add("group1")
         expected_groups.add("group2")
 
         self.assertSetEqual(self.auth._groups, expected_groups)
+    
+    def test_bad_key_creation(self):
+        fails = [
+            12312313, 
+            {123123, 123123}, 
+            [123,456,789], 
+            "i'm a string"
+        ]
+        for fail in fails:
+            with self.assertRaises(TypeError):
+                self.auth.create_keys(1, groups=fail)
+            with self.assertRaises(TypeError):
+                self.auth.create_keys(1, expiration=fail)
+        with self.assertRaises(TypeError):
+            self.auth.create_keys(1, expiration=1231231231)
+        self.assertEqual(len(self.auth._registration_keys), 0)
+    
+    def test_make_keys_with_nonexistent_groups(self):
+        groups = {"not", "created", "yet"}
+        with self.assertRaises(GroupExistenceException) as context:
+            self.auth.create_keys(1, groups=groups)
+        self.assertEqual(context.exception.exists, False)
 
+        self.assertEqual(len(self.auth._registration_keys), 0)
 
 if __name__ == "__main__":
     unittest.main()

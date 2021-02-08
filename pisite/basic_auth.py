@@ -6,25 +6,31 @@ import unittest
 import zxcvbn
 import copy
 import yaml
+import secrets
+import datetime
 
 # TODO: add permissions to groups?
-# TODO: implement one-time permission keys required for registration
-
+# TODO: require key to create user
+# TODO: add changing password, deleting 
 
 class BasicAuth:
     """An object that contains all implementation details"""
 
     # list of groups that users are added to if no groups are specified
-    DEFAULT_GROUPS = {"default"}
+    _DEFAULT_GROUPS = {"default"}
+    # default registration key length in bytes
+    _KEY_LENGTH = 64
+    # default key expiration offset as timedelta
+    _DEFAULT_KEY_EXPIRATION_OFFSET = datetime.timedelta(days=3)
 
     def __init__(self):
         """Constructor that does not read from file, thus is empty"""
         self._users = dict()
         self._groups = set()
-        self._reg_keys = set()
+        self._registration_keys = dict()
 
         # add default groups to _groups
-        self._groups.update(BasicAuth.DEFAULT_GROUPS)
+        self._groups.update(BasicAuth._DEFAULT_GROUPS)
     
     def create_user(self, username, plaintext_password, groups=None, force_password=False):
         """
@@ -38,7 +44,7 @@ class BasicAuth:
         # TODO: make groups variadic??
         # if no groups is empty, make sure we assign the user to the default group(s)
         if groups is None or len(groups) == 0:
-            groups = BasicAuth.DEFAULT_GROUPS
+            groups = BasicAuth._DEFAULT_GROUPS
 
         if not isinstance(groups, set):
             raise TypeError("groups must be a set")
@@ -121,6 +127,66 @@ class BasicAuth:
         
         # add the groups
         self._groups.update(groups)
+
+    def create_keys(self, num, expiration=None, groups=None) -> list:
+        """
+        Returns a list of new permission keys associated with the select groups
+        Raises GroupExistenceException if any group does not exist
+        Raises TypeError if expiration is not timedate
+        Will not make any keys if any group does not exist
+        """
+
+        # set default datetime
+        if expiration == None:
+            expiration = datetime.datetime.now() + BasicAuth._DEFAULT_KEY_EXPIRATION_OFFSET
+
+        # give default groups if none specified
+        # also, check if groups is iterable with len()
+        try:
+            if groups == None or len(groups) == 0:
+                groups = BasicAuth._DEFAULT_GROUPS
+        except TypeError:
+            raise TypeError("groups must be iterable, {} is not".format(type(groups)))
+        
+        # make sure groups isn't a string (which is iterable but not what we want)
+        if isinstance(groups, str):
+            raise TypeError("groups must not be string")
+
+        # make sure expiration is a datetime
+        if not isinstance(expiration, datetime.datetime):
+            raise TypeError("expiration must be timedate, not {}".format(type(expiration)))
+        
+        # already checked if group is iterable
+        for group in groups:
+            self._assert_group_existence(group, True)
+    
+        list_of_keys=list()
+        for _ in range(num):
+            keep_going = True
+            # make sure there's no collision
+            while keep_going:
+                # generate random hex token
+                key_string = secrets.token_hex(BasicAuth._KEY_LENGTH)
+
+                # if no collision in stored keys and not-yet stored keys
+                if key_string not in self._registration_keys and key_string not in list_of_keys:
+                    keep_going = False # don't loop
+                    list_of_keys.append(key_string) # add the key to our temp list
+                # else we have hit the jackpot and made a collision
+                else:
+                    print("buy a lottery ticket")
+                    # keep looping
+        
+        # make dict that associates the key with the groups and expiration
+        key_dict=dict()
+        for key in list_of_keys:
+            key_dict.update({key: {"expiration": expiration, "groups": set(groups)}})
+        
+        # add it to the store with given groups
+        self._registration_keys.update(key_dict)
+
+        # return the keys
+        return list_of_keys
 
     def add_user_to_groups(self, user, *groups):
         """
@@ -240,7 +306,7 @@ class BasicAuth:
         Raises GroupExistenceException if group does not exist
         """
         if not isinstance(group, str):
-            raise TypeError("group must be a string")
+            raise TypeError("group must be a string, not a {}".format(type(group)))
         if (group in self._groups) != exists:
             raise GroupExistenceException(group, not exists)
     
