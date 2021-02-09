@@ -7,8 +7,8 @@ import sys
 import multiprocessing.connection
 import threading
 
-# stdout is redirected to invoker until setup is done
-class REPLBoss:
+# this file should be run as a shell program under a specific unix user
+class REPLShell:
 
     GOOD_PASSWORD_STRING = "SUCCESS GOOD_PASSWORD"
     SETUP_DONE_STRING = "SUCCESS SETUP_DONE"
@@ -22,7 +22,7 @@ class REPLBoss:
         print("repl python executable is %s" % subprocess.run(["which", "python"], stdout=subprocess.PIPE).stdout.decode())
         
         # send signal to invoker that initial was successful
-        print(REPLBoss.SETUP_DONE_STRING, file=sys.stderr)
+        print(REPLShell.SETUP_DONE_STRING, file=sys.stderr)
 
         self._stdin_listening_thread = threading.Thread(target=self.listen_on_stdin)
         self._stdin_listening_thread.start()
@@ -32,19 +32,20 @@ class REPLBoss:
             line = sys.stdin.readline().rstrip("\n")
 
             print("repl sees on stdin: %s" % line)
-            if line == REPLBoss.END_STRING:
-                print(REPLBoss.END_STRING, file=sys.stderr)
+            if line == REPLShell.END_STRING:
+                print(REPLShell.END_STRING, file=sys.stderr)
                 break
-            elif line.startswith(REPLBoss.EXEC_STRING):
+            elif line.startswith(REPLShell.EXEC_STRING):
                 try:
                     exec_cmd = line.split(" ")[1:]
                     proc = subprocess.Popen(exec_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
                     out, err = proc.communicate()
-                    print("repl ran %s\nrepl exec output: %s\nrepl exec err:%s" % (exec_cmd, out, err))
+                    returncode = proc.returncode
+                    print("repl ran %s\nrepl exec output: %s\nrepl exec err: %s\nrepl exec return code: %s" % (exec_cmd, out, err, returncode))
                 except: # TODO: which errors to catch???
-                    print("%s: %s" % (REPLBoss.FAILED_EXEC_STRING, line), file=sys.stderr)
+                    print("%s: %s" % (REPLShell.FAILED_EXEC_STRING, line), file=sys.stderr)
                 
 
 if __name__ == "__main__":
-    print(REPLBoss.GOOD_PASSWORD_STRING, file=sys.stderr)
-    repl = REPLBoss()
+    print(REPLShell.GOOD_PASSWORD_STRING, file=sys.stderr)
+    repl = REPLShell()
