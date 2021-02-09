@@ -41,11 +41,11 @@ idea 2:
 
 idea 3:
 - no data store
-- user would use unix username and password-part to "log in" 
+- user would use unix username and half-password to "log in" 
 - keep some kind of logged-in process active during session (chrooted? REPL? unset $PROMPT?)
-- set unix password to some string mixed with a secret stored by the server
+- set unix password to the half-password mixed with a secret stored by the server
 - thus, users cannot log in via standalone ssh, only through the web server
-- to run command, web server uses subprocess (REPL? which creates its own workers) which is run *as* the unix user via doas/sudo/su (no setup needed)
+- to run command, web server uses subprocess (REPL? which creates its own workers) which is run *as* the unix user via su and piped password
 - use shared data structure / unix sockets / unix named pipes
 - administration & permission control is done via unix
 
