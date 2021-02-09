@@ -5,42 +5,46 @@ import getpass
 import subprocess
 import sys
 import multiprocessing.connection
+import threading
 
 # stdout is redirected to invoker until setup is done
 class REPLBoss:
 
     GOOD_PASSWORD_STRING = "SUCCESS GOOD_PASSWORD"
     SETUP_DONE_STRING = "SUCCESS SETUP_DONE"
-    FAIL_SOCKET_STRING = "FAILURE BAD_SOCKET"
-    FAIL_NO_SOCKET_GIVEN = "FAILURE NO_SOCKET_GIVEN"
+    END_STRING = "END"
+    EXEC_STRING = "EXEC "
+    FAILED_EXEC_STRING = "FAILED EXEC"
 
-    def __init__(self, path_to_socket):
+    def __init__(self):
         print("repl user is %s" % getpass.getuser())
         print("repl cwd is %s" % os.getcwd())
         print("repl python executable is %s" % subprocess.run(["which", "python"], stdout=subprocess.PIPE).stdout.decode())
-        if path_to_socket == "" or path_to_socket is None:
-            print("repl given path to socket is empty")
-        else:
-            print("repl given path to socket is %s" % path_to_socket)
-
-        # do setup
-        # set up connection to invoker
-        try:
-            self._connection_to_invoker = multiprocessing.connection.Client(address=path_to_socket, family='AF_UNIX')
-        except OSError:
-            print(REPLBoss.FAIL_SOCKET_STRING, file=sys.stderr)
-            #exit(-1)
-
-        # send signal to invoker to stop listening on stdout and switch to socket
+        
+        # send signal to invoker that initial was successful
         print(REPLBoss.SETUP_DONE_STRING, file=sys.stderr)
 
+        self._stdin_listening_thread = threading.Thread(target=self.listen_on_stdin)
+        self._stdin_listening_thread.start()
+
+    def listen_on_stdin(self):
+        while True:
+            line = sys.stdin.readline().rstrip("\n")
+
+            print("repl sees on stdin: %s" % line)
+            if line == REPLBoss.END_STRING:
+                print(REPLBoss.END_STRING, file=sys.stderr)
+                break
+            elif line.startswith(REPLBoss.EXEC_STRING):
+                try:
+                    exec_cmd = line.split(" ")[1:]
+                    proc = subprocess.Popen(exec_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+                    out, err = proc.communicate()
+                    print("repl ran %s\nrepl exec output: %s\nrepl exec err:%s" % (exec_cmd, out, err))
+                except: # TODO: which errors to catch???
+                    print("%s: %s" % (REPLBoss.FAILED_EXEC_STRING, line), file=sys.stderr)
+                
 
 if __name__ == "__main__":
     print(REPLBoss.GOOD_PASSWORD_STRING, file=sys.stderr)
-    arg = ""
-    try:
-        arg = sys.argv[1]
-    except IndexError:
-        print(REPLBoss.FAIL_NO_SOCKET_GIVEN, file=sys.stderr)
-        #exit(-2)
-    repl = REPLBoss(arg)
+    repl = REPLBoss()
