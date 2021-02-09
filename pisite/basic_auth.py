@@ -14,7 +14,7 @@ import datetime
 # TODO: add user information page, displaying groups and group permissions
 
 class BasicAuth:
-    """An object that contains all implementation details"""
+    """Allows for basic authentication, including registration keys, password encryption, and group permissions"""
 
     # list of groups that users are added to if no groups are specified
     _DEFAULT_GROUPS = {"default"}
