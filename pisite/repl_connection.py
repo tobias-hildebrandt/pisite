@@ -23,7 +23,7 @@ import concurrent.futures
 
 class REPLConnection:
 
-    def __init__(self, repl_cmd, username, password,):
+    def __init__(self, repl_cmd, username, password):
 
         # set up logger
         self._logger = logging.getLogger(__name__)
