@@ -12,12 +12,13 @@ import logging
 import gc
 import time
 import signal
+import concurrent.futures
 # maybe use pexpect?
 
 # TODO: switch the repl to parallel?
 # TODO: make sure that we see "Password: " + good password string as first line on stderr
 # TODO: reset environment on su login?
-# TODO: move repl strings into config file somewhere for portability
+# TODO: move repl strings into config file somewhere for portability, use format strings 
 # TODO: detach repl_connection from repl_shell completely, allow for any repl implementation to be run
 
 class REPLConnection:
@@ -59,23 +60,9 @@ class REPLConnection:
         # TODO: fuck python
         del password
         gc.collect()
-        
-        self._thread_stdout = threading.Thread(target=self._monitor_repl_stream, args=(self._repl_proc, "stdout"))
-        self._thread_stderr = threading.Thread(target=self._monitor_repl_stream, args=(self._repl_proc, "stderr"))
-        
-        # wait until process terminates, get output
-        #out, err = proc.communicate()
-        #logging.info(out)
-        #logging.info(err)
-
-    def start_monitoring(self):
-        self._thread_stderr.start()
-        self._thread_stdout.start()
 
     def wait_and_close(self):
-        self._repl_proc.stdin.close() # sends blank line to shell
-        self._thread_stderr.join()
-        self._thread_stdout.join()
+        self._repl_proc.stdin.close() # EOF to shell
         self._repl_proc.wait()
 
     def __del__(self):
@@ -83,36 +70,37 @@ class REPLConnection:
         for handler in self._logger.handlers:
             self._logger.removeHandler(handler)
 
-    def _monitor_repl_stream(self, process, stream_name):
-        # TODO: only check return value if readline hangs?
-        # TODO: capture stderr too OR **redirect proc's stderr to stdout**
-        # live capture stdout line by line
-
+    def _monitor_repl_stream(self, stream) -> (list, int):
+        output = list()
+        return_code = None
+        started = False
         while True:
-            if stream_name == "stdout":
-                line = process.stdout.readline().rstrip("\n") # read one line of text from the pipe
-            elif stream_name == "stderr":
-                line = process.stderr.readline().rstrip("\n") # read one line of text from the pipe
-            else:
-                self._logger.info("monitor_repl_stream given invalid stream %s" % stream_name)
+            try:
+                line = stream.readline().rstrip("\n") 
+            except Exception as e:
+                print("exception raised trying to read line on stream {}: {}".format(stream, e), file=sys.stderr)
+                break
 
             return_value = self._repl_proc.poll() # get return value or None if still running
 
             if return_value is not None: # has terminated
-                self._logger.info("replconnection sees process has terminated, breaking stream %s..." % stream_name)
+                self._logger.info("replconnection sees process has terminated, breaking stream {}".format(stream))
                 break
-            if line is not None and line != "":
-                if stream_name == "stdout":
-                    self._handle_stdout(line)
-                elif stream_name == "stderr":
-                    self._handle_stderr(line)
-        self._logger.info("replconnection done with monitor_repl_stream for %s" % stream_name)
+            if line is None and line == "":
+                self._logger.info("replconnection sees blank or None line on {}".format(stream))
+            elif (stream is self._repl_proc.stdout) and (line.startswith(repl_shell.REPLShell.RESULTS_RC_STRING)):
+                return_code = line.strip(repl_shell.REPLShell.RESULTS_RC_STRING)
+            elif line == repl_shell.REPLShell.RESULTS_START_STRING:
+                started = True
+            elif line == repl_shell.REPLShell.RESULTS_DONE_STRING:
+                started = False
+                break
+            elif started:
+                output.append(line)
+            
+        self._logger.info("replconnection done with monitor_repl_stream for {}".format(stream))
 
-    def _handle_stdout(self, line):
-        self._logger.info("repl's stdout: %s" % line)
-
-    def _handle_stderr(self, line):
-        self._logger.info("repl's STDERR: %s" % line)
+        return (output, return_code)
 
     def _write_to_stdin(self, line):
         try:
@@ -125,9 +113,19 @@ class REPLConnection:
             else:
                 # Raise any other error.
                 raise e
-
+    
     def give_repl_exec_command(self, command_line) -> (str, str, int):
         self._write_to_stdin(command_line)
+
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            future = executor.submit(self._monitor_repl_stream, (self._repl_proc.stdout))
+            out, return_code = future.result()
+        
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            future = executor.submit(self._monitor_repl_stream, (self._repl_proc.stderr))
+            err, _ = future.result()
+
+        return (out, err, return_code)
 
 
 def test_repl_shell_py():
@@ -141,17 +139,16 @@ def test_repl_shell_py():
     del password
     gc.collect()
 
-    repl_connection.give_repl_exec_command("TEST_ECHO 123123123")
-    test_string = "; echo this is a test"
-    repl_connection.give_repl_exec_command("./testscript.sh %s" % test_string)
-    repl_connection.give_repl_exec_command("this should fail")
+    #(out, err, return_code) = repl_connection.give_repl_exec_command("TEST_ECHO 123123123")
+    tuple_data  = repl_connection.give_repl_exec_command("TEST_ECHO 123123123")
 
-    repl_connection.start_monitoring()
-    # while True:
-    #     repl_connection.give_repl_exec_commands(input())
-
-    # time.sleep(2)
-    # repl_connection.give_repl_exec_commands("echo past sleeping")
+    print(tuple_data)
+    # print("out is:")
+    # print(out)
+    # print("err is:")
+    # print(err)
+    # print("rc is:")
+    # print(return_code)
 
     repl_connection.wait_and_close()
 

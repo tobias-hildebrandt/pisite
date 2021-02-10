@@ -19,6 +19,9 @@ class REPLShell:
     FAILED_EXEC_STRING = "FAILED EXEC"
     VALIDATION_TABLE_PATH_RELATIVE = ".pisite/validationtable.json"
     NOT_ALLOWED_STRING = "FAILED INVALID COMMAND"
+    RESULTS_RC_STRING = "RESULTS RC"
+    RESULTS_START_STRING = "RESULTS START"
+    RESULTS_DONE_STRING = "RESULTS DONE"
 
     TIMEOUT=3 #seconds
 
@@ -118,24 +121,35 @@ class REPLShell:
             # this gets really fucken huge if lots of data is output by subprocess (e.g. GNU coreutil's `yes`)
             # https://stackoverflow.com/a/24126616
             # tl;dr this data must be stored somewhere
-            # TODO: read the first X lines of output one by one and save the rest to a file? then serve the file if needed
+            # TODO: read the first X lines of output one by one and save the rest to a file? then serve the file if needed,
             #       need to use threads
             out_complete, err_complete = self._current_subproc.communicate(timeout=REPLShell.TIMEOUT, input=None)
             
             # might not be necessary
-            sys.stdout.flush()
-            sys.stderr.flush()
+            # sys.stdout.flush()
+            # sys.stderr.flush()
 
             returncode = self._current_subproc.returncode
 
-            print("repl ran %s\nrepl exec output: %s\nrepl exec err: %s\nrepl exec return code: %s" %
-                (exec_cmd, 
-                out_complete.replace("\n", "\\n"), 
-                err_complete.replace("\n", "\\n"), 
-                returncode))
+            print("{}{}".format(REPLShell.RESULTS_RC_STRING, returncode))
+
+            print(REPLShell.RESULTS_START_STRING)
+            print(out_complete[:-1]) # strip out last line (blank)
+            print(REPLShell.RESULTS_DONE_STRING)
+
+            print(REPLShell.RESULTS_START_STRING, file=sys.stderr)
+            print(err_complete[:-1], file=sys.stderr) # strip out last line (blank)
+            print(REPLShell.RESULTS_DONE_STRING, file=sys.stderr)
+
+            # print("repl ran %s\nrepl exec output: %s\nrepl exec err: %s\nrepl exec return code: %s" %
+            #     (exec_cmd, 
+            #     out_complete.replace("\n", "\\n"), 
+            #     err_complete.replace("\n", "\\n"), 
+            #     returncode))
         except Exception as e: # TODO: which errors to catch???
-            traceback.print_exc(file=sys.stderr)
             print("%s;e=%s;line=%s" % (REPLShell.FAILED_EXEC_STRING, e, line), file=sys.stderr)
+            traceback.print_exc(file=sys.stderr)
+            
                 
 
 if __name__ == "__main__":
