@@ -8,7 +8,6 @@ import stat
 import repl_shell # pylint: disable=import-error
 import shutil
 
-# TODO: create default scripts
 # TODO: if file contains {}, treat it as empty
 # TODO: print to stderr
 # TODO: disallow write permissions to directory recursively?
@@ -19,6 +18,7 @@ echo "\\$0 is $0"
 echo "\\$@ is \"$@\""
 echo "user is $USER"
 date
+echo "this is in stderr" >&2 
 echo "last line in script"
 """
 DEFAULT_SCRIPTS = {"TEST_ECHO": {"text": TEST_ECHO, "cmd": "test_echo.sh"}}
