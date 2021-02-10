@@ -5,25 +5,25 @@ import os
 import argparse
 import getpass
 import stat
-import repl_shell
+import repl_shell # pylint: disable=import-error
+import shutil
 
 # TODO: create default scripts
 # TODO: if file contains {}, treat it as empty
 # TODO: print to stderr
 # TODO: disallow write permissions to directory recursively?
 
-
-if __name__ == "__main__":
-
-    DEFAULT_RELATIVE = repl_shell.REPLShell.VALIDATION_TABLE_PATH_RELATIVE
-    TEST_ECHO = """#!/bin/sh
+DEFAULT_RELATIVE = repl_shell.REPLShell.VALIDATION_TABLE_PATH_RELATIVE
+TEST_ECHO = """#!/bin/sh
 echo "\\$0 is $0"
-echo "\\$1 is $1"
+echo "\\$@ is \"$@\""
 echo "user is $USER"
 date
 echo "last line in script"
 """
-    DEFAULT_SCRIPTS = {"TEST_ECHO": {"text":TEST_ECHO, "filename": "test_echo.sh"}}
+DEFAULT_SCRIPTS = {"TEST_ECHO": {"text": TEST_ECHO, "cmd": "test_echo.sh"}}
+
+if __name__ == "__main__":
 
     parser = argparse.ArgumentParser() #description="A tool for helping manage pisite validation tables.")
     parser.add_argument("--user", help="which user's validation table with which you want to interact, defaults to current user")
@@ -32,7 +32,7 @@ echo "last line in script"
     parser.add_argument("--create", action="store_true", default=False, help="try create the file if it does not exist, also create default scripts")
     parser.add_argument("--read", "--print", action="store_true", default=True, help="read the table and print it")
     parser.add_argument("--overwrite", "--force", "-f", action="store_true", default=False, help="overwrite values already in the table")
-    parser.add_argument("--add", "-a", nargs=2, action="append", metavar=("KEY", "DEST"), help="add an entry to the table, happens before print") # -a NAME path
+    parser.add_argument("--add", "-a", nargs=2, action="append", metavar=("KEY", "CMD"), help="add an entry to the table, happens before print") # -a NAME path
     parser.add_argument("--delete", "--del", "--remove", "--rem", "-d", action="append", metavar="KEY", help="remove an entry from the table, happens before print")
     parser.add_argument("--debug", action="store_true", default=False, help="enable debug") #TODO: add verbosity
     parser.add_argument("--verbose", "-v", action="store_true", default=False, help="enable verbose output")
@@ -107,7 +107,10 @@ echo "last line in script"
             if not os.path.exists(dir_path):
                 print("creating directory: {}".format(dir_path))
                 os.mkdir(dir_path)
+
+                # set permissions and owner
                 os.chmod(dir_path, stat.S_IXUSR | stat.S_IWUSR | stat.S_IRUSR)
+                shutil.chown(dir_path, namespace.user, namespace.user)
             
             # if the file at dir_path is not actually a directory
             if not os.path.isdir(dir_path):
@@ -129,16 +132,17 @@ echo "last line in script"
                     scripts_data = dict()
                     for key in DEFAULT_SCRIPTS:
                         # script path is in same dir as validation table
-                        script_path = os.path.join(dir_path, DEFAULT_SCRIPTS[key]["filename"])
-                        scripts_data.update({key: DEFAULT_SCRIPTS[key]["filename"]})
+                        script_path = os.path.join(dir_path, DEFAULT_SCRIPTS[key]["cmd"])
+                        scripts_data.update({key: DEFAULT_SCRIPTS[key]["cmd"]})
                         # do not overwrite
                         if not os.path.exists(script_path):
                             try:
                                 with open(script_path, "w") as f:
                                     f.write(DEFAULT_SCRIPTS[key]["text"])
                                 print("creating default script {} at {}".format(key, script_path))
-                                # set permissions
+                                # set permissions and owner
                                 os.chmod(script_path, stat.S_IXUSR | stat.S_IWUSR | stat.S_IRUSR)
+                                shutil.chown(script_path, namespace.user, namespace.user)
                             except OSError:
                                 print("unable to write default script {} to path {}, exiting...".format(key, script_path))
                                 exit(-1)
@@ -147,8 +151,9 @@ echo "last line in script"
                     # populate file with default scripts
                     with open(filepath, "w") as f:
                         json.dump(scripts_data, f)
-                    # set permissions
+                    # set permissions and owner
                     os.chmod(filepath, stat.S_IXUSR | stat.S_IWUSR | stat.S_IRUSR)
+                    shutil.chown(filepath, namespace.user, namespace.user)
                     print()
         
         # always try to read the data
@@ -170,7 +175,7 @@ echo "last line in script"
     end = False
     for key in data:
         if not isinstance(key, str) and not isinstance(key[data], str):
-            print("invalid entry in table, KEY \"{}\" and DEST \"{}\" must both be strings".format(key, data[key]))
+            print("invalid entry in table, KEY \"{}\" and CMD \"{}\" must both be strings".format(key, data[key]))
             end = True
     if end:
         print("exiting due to invalid entries in table...")
@@ -178,15 +183,15 @@ echo "last line in script"
 
     # if we want to add things
     if namespace.add is not None:
-        for key, dest in namespace.add:
+        for key, cmd in namespace.add:
             # if overwrite is active or key doesn't exist
             if namespace.overwrite or key not in data:
                 if namespace.verbose:
                     if key in data:
-                        print("overwriting KEY {}, was {}, is now {}".format(key, data[key], dest))
+                        print("overwriting KEY {}, was {}, is now {}".format(key, data[key], cmd))
                     else:
-                        print("adding KEY {} with data {}".format(key, dest))
-                data.update({key: dest})
+                        print("adding KEY {} with data {}".format(key, cmd))
+                data.update({key: cmd})
             else:
                 print("KEY {} already in table, skipping (use --overwrite to overwrite)".format(key))
         print()
@@ -195,10 +200,10 @@ echo "last line in script"
     if namespace.delete is not None:
         for key in namespace.delete:
             try:
-                temp_dest = data[key]
+                temp_cmd = data[key]
                 del data[key]
                 if namespace.verbose:
-                    print("deleting KEY {}, DEST was {}".format(key, temp_dest))
+                    print("deleting KEY {}, CMD was {}".format(key, temp_cmd))
             except KeyError:
                 print("KEY {} doesn't exist, skipping deletion".format(key))
         print()
@@ -219,19 +224,19 @@ echo "last line in script"
             exit(-1)
 
     if namespace.read:
-        # find maximum key and dest width
+        # find maximum key and cmd width
         key_width = 0
-        dest_width = 0
+        cmd_width = 0
         for key in data:
             key_width = len(key) if (len(key) > key_width) else key_width
-            dest_width = len(data[key]) if (len(data[key]) > dest_width) else dest_width
+            cmd_width = len(data[key]) if (len(data[key]) > cmd_width) else cmd_width
 
         # add padding to fit maxiumum of each
-        format_string = "{key:>{key_width}} | {dest:>{dest_width}}"
+        format_string = "{key:>{key_width}} | {cmd:>{cmd_width}}"
         
-        header_line_string = format_string.replace(">", "^").format(key="KEY", dest="DEST", key_width=key_width, dest_width=dest_width)
+        header_line_string = format_string.replace(">", "^").format(key="KEY", cmd="CMD", key_width=key_width, cmd_width=cmd_width)
         separator_string_width = (len(header_line_string))
-        separator_string = "-" * separator_string_width #len(format_string.format(key="", dest="", key_width=key_width, dest_width=dest_width))
+        separator_string = "-" * separator_string_width #len(format_string.format(key="", cmd="", key_width=key_width, cmd_width=cmd_width))
 
         #print("format string = {}".format(format_string))
 
@@ -239,5 +244,5 @@ echo "last line in script"
         print(header_line_string)
         print(separator_string)
         for key in data:
-            print(format_string.format(key=key, dest=data[key], key_width=key_width, dest_width=dest_width))
+            print(format_string.format(key=key, cmd=data[key], key_width=key_width, cmd_width=cmd_width))
         print(separator_string)

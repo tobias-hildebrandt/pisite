@@ -7,20 +7,18 @@ import shlex
 import errno
 import sys
 import threading
-import repl_shell
+import repl_shell # pylint: disable=import-error
 import logging
 import gc
 import time
 import signal
 # maybe use pexpect?
 
-# TODO: add filter to repl?
 # TODO: switch the repl to parallel?
 # TODO: make sure that we see "Password: " + good password string as first line on stderr
 # TODO: reset environment on su login?
-# TODO: move repl strings into config file somewhere for portability, 
+# TODO: move repl strings into config file somewhere for portability
 # TODO: detach repl_connection from repl_shell completely, allow for any repl implementation to be run
-# TODO: not sure where validation table should be, here or in repl_shell
 
 class REPLConnection:
 
@@ -128,7 +126,7 @@ class REPLConnection:
                 # Raise any other error.
                 raise e
 
-    def give_repl_exec_command(self, command_line):
+    def give_repl_exec_command(self, command_line) -> (str, str, int):
         self._write_to_stdin(command_line)
 
 
@@ -143,7 +141,7 @@ def test_repl_shell_py():
     del password
     gc.collect()
 
-    repl_connection.give_repl_exec_command("echo hellothere")
+    repl_connection.give_repl_exec_command("TEST_ECHO 123123123")
     test_string = "; echo this is a test"
     repl_connection.give_repl_exec_command("./testscript.sh %s" % test_string)
     repl_connection.give_repl_exec_command("this should fail")
