@@ -16,10 +16,10 @@ import concurrent.futures
 # maybe use pexpect?
 
 # TODO: switch the repl to parallel?
-# TODO: make sure that we see "Password: " + good password string as first line on stderr
 # TODO: reset environment on su login?
 # TODO: move repl strings into config file somewhere for portability, use format strings 
 # TODO: detach repl_connection from repl_shell completely, allow for any repl implementation to be run
+# TODO: convert all modulo string formats to .format()
 
 class REPLConnection:
 
@@ -113,6 +113,7 @@ class REPLConnection:
                 break
             elif line is None or line == "":
                 self._logger.info("replconnection sees blank or None line on {}".format(stream))
+            # only look for return code on stdout
             elif (stream is self._repl_proc.stdout) and (line.startswith(repl_shell.REPLShell.RESULTS_RC_STRING)):
                 return_code = line.strip(repl_shell.REPLShell.RESULTS_RC_STRING)
             elif line == repl_shell.REPLShell.RESULTS_START_STRING:
@@ -138,7 +139,7 @@ class REPLConnection:
                 # Raise any other error.
                 raise e
     
-    def give_repl_exec_command(self, command_line) -> (str, str, int):
+    def give_repl_exec_command(self, command_line) -> dict:
         # send the command
         self._write_to_stdin(command_line)
 
@@ -153,14 +154,17 @@ class REPLConnection:
             err, _ = future.result()
 
         # pack it into a tuple and return it
-        return (out, err, return_code)
+        return {"stdout":out, "stderr":err, "return_code":return_code}
 
 
 def test_repl_shell_py():
     user = "testuser"
     password = "testpassword"
     #command = "./testscript.sh"
-    command = "'python repl_shell.py'"
+    command_name = "repl_shell.py"
+    dir_path = os.path.dirname(os.path.realpath(__file__))
+    command = "'python {}'".format(os.path.join(dir_path, command_name))
+    #command = "'python repl_shell.py'" # TODO: hardcode this?
 
     repl_connection = REPLConnection(command, user, password)
 
@@ -168,8 +172,8 @@ def test_repl_shell_py():
     gc.collect()
 
     #(out, err, return_code) = repl_connection.give_repl_exec_command("TEST_ECHO 123123123")
-    print(repl_connection.give_repl_exec_command("TEST_ECHO 123123123"))
-    print(repl_connection.give_repl_exec_command("TEST_ECHO 44444444444444444"))
+    print(repl_connection.give_repl_exec_command("TEST_ECHO blah blah blah"))
+    print(repl_connection.give_repl_exec_command("TEST_ECHO reeeee 1233 123 123"))
 
     repl_connection.wait_and_close()
 
