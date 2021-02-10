@@ -56,7 +56,7 @@ class REPLShell:
         self._stdin_listening_thread.start()
 
     def signal_handler(self, signal, frame):
-        print("repl recieved signal %s", file=sys.stderr)
+        print("repl recieved signal %s" % signal, file=sys.stderr)
         
         # tell main loop not to loop again
         self._loop_on_stdin = False
