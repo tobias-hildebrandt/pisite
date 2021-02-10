@@ -5,6 +5,7 @@ import os
 import argparse
 import getpass
 import stat
+import repl_shell
 
 # TODO: create default scripts
 # TODO: if file contains {}, treat it as empty
@@ -14,7 +15,7 @@ import stat
 
 if __name__ == "__main__":
 
-    DEFAULT_RELATIVE = ".pisite/validationtable.json"
+    DEFAULT_RELATIVE = repl_shell.REPLShell.VALIDATION_TABLE_PATH_RELATIVE
     TEST_ECHO = """#!/bin/sh
 echo "\\$0 is $0"
 echo "\\$1 is $1"
