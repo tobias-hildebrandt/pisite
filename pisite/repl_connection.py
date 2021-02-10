@@ -52,8 +52,12 @@ class REPLConnection:
         self._write_to_stdin(password)
         self._logger.info("replconnection done piping password")
 
-        # flush stderr so we get the "Password: " ? # TODO: remove, useless?
-        self._repl_proc.stderr.flush()
+        # make sure the password was successful
+        success = self._verify_successful_password()
+
+        # TODO: add real exception
+        if not success:
+            raise Exception("bad login details")
 
         # attempt to delete the password and collect the garbage
         # python is garbage and this doesn't *actually* delete it
@@ -70,6 +74,27 @@ class REPLConnection:
         for handler in self._logger.handlers:
             self._logger.removeHandler(handler)
 
+    def _verify_successful_password(self):
+        while True:
+            try:
+                line = self._repl_proc.stderr.readline().rstrip("\n")
+            except Exception as e:
+                print("exception raised trying to read password success on stderr: {}".format(e))
+                raise e
+
+            return_value = self._repl_proc.poll() # get return value or None if still running
+
+            if return_value is not None: # process has terminated
+                self._logger.info("replconnection sees process has terminated while waiting for password success")
+                return False
+            elif line is None or line == "":
+                self._logger.info("replconnection sees blank or None line while looking for successful password")
+            elif repl_shell.REPLShell.GOOD_PASSWORD_STRING in line:
+                self._logger.info("replconnection sees good password string")
+                return True
+            else:
+                self._logger.info("replconnection sees line while looking for successful password: {}".format(line))
+
     def _monitor_repl_stream(self, stream) -> (list, int):
         output = list()
         return_code = None
@@ -83,10 +108,10 @@ class REPLConnection:
 
             return_value = self._repl_proc.poll() # get return value or None if still running
 
-            if return_value is not None: # has terminated
+            if return_value is not None: # process has terminated
                 self._logger.info("replconnection sees process has terminated, breaking stream {}".format(stream))
                 break
-            if line is None and line == "":
+            elif line is None or line == "":
                 self._logger.info("replconnection sees blank or None line on {}".format(stream))
             elif (stream is self._repl_proc.stdout) and (line.startswith(repl_shell.REPLShell.RESULTS_RC_STRING)):
                 return_code = line.strip(repl_shell.REPLShell.RESULTS_RC_STRING)
@@ -98,7 +123,7 @@ class REPLConnection:
             elif started:
                 output.append(line)
             
-        self._logger.info("replconnection done with monitor_repl_stream for {}".format(stream))
+        #self._logger.info("replconnection done with _monitor_repl_stream for {}".format(stream))
 
         return (output, return_code)
 
@@ -108,23 +133,26 @@ class REPLConnection:
         except IOError as e:
             if e.errno == errno.EPIPE or e.errno == errno.EINVAL:
                 # EPIPE = broken pipe, EINVAL = invalid argument
-                # break
-                self._logger.info("error writing") 
+                self._logger.info("error writing to stdin") 
             else:
                 # Raise any other error.
                 raise e
     
     def give_repl_exec_command(self, command_line) -> (str, str, int):
+        # send the command
         self._write_to_stdin(command_line)
 
+        # get entire stdout and return code
         with concurrent.futures.ThreadPoolExecutor() as executor:
             future = executor.submit(self._monitor_repl_stream, (self._repl_proc.stdout))
             out, return_code = future.result()
         
+        # get entire stderr
         with concurrent.futures.ThreadPoolExecutor() as executor:
             future = executor.submit(self._monitor_repl_stream, (self._repl_proc.stderr))
             err, _ = future.result()
 
+        # pack it into a tuple and return it
         return (out, err, return_code)
 
 
@@ -140,15 +168,8 @@ def test_repl_shell_py():
     gc.collect()
 
     #(out, err, return_code) = repl_connection.give_repl_exec_command("TEST_ECHO 123123123")
-    tuple_data  = repl_connection.give_repl_exec_command("TEST_ECHO 123123123")
-
-    print(tuple_data)
-    # print("out is:")
-    # print(out)
-    # print("err is:")
-    # print(err)
-    # print("rc is:")
-    # print(return_code)
+    print(repl_connection.give_repl_exec_command("TEST_ECHO 123123123"))
+    print(repl_connection.give_repl_exec_command("TEST_ECHO 44444444444444444"))
 
     repl_connection.wait_and_close()
 
