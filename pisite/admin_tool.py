@@ -152,7 +152,7 @@ if __name__ == "__main__":
                     with open(filepath, "w") as f:
                         json.dump(scripts_data, f)
                     # set permissions and owner
-                    os.chmod(filepath, stat.S_IXUSR | stat.S_IWUSR | stat.S_IRUSR)
+                    os.chmod(filepath, stat.S_IWUSR | stat.S_IRUSR)
                     shutil.chown(filepath, namespace.user, namespace.user)
                     print()
         
