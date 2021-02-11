@@ -7,13 +7,17 @@ import shlex
 import errno
 import sys
 import threading
-import repl_shell # pylint: disable=import-error
 import logging
 import gc
 import time
 import signal
 import concurrent.futures
 # maybe use pexpect?
+
+try:
+    import pisite.repl_shell as repl_shell
+except:
+    import repl_shell
 
 # TODO: switch the repl to parallel?
 # TODO: reset environment on su login?
