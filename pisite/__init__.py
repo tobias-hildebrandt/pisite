@@ -9,8 +9,12 @@ from flask import (
 import functools
 import subprocess
 import datetime
+import jsonpickle
 
-import pisite.basic_auth as basic_auth
+try:
+    import pisite.repl_connection as repl_connection
+except:
+    import repl_connection
 
 def create_app(test_config=None):
     # create and configure flaskapp
@@ -52,8 +56,9 @@ def create_app(test_config=None):
     # return app because we are a factory
     return app
 
-auth = basic_auth.BasicAuth()
-auth.create_user("test", "test", force=True)
+command_name = "repl_shell.py"
+dir_path = os.path.dirname(os.path.realpath(__file__))
+command = "'python {}'".format(os.path.join(dir_path, command_name))
 
 auth_bp = Blueprint("auth", __name__, url_prefix="/")
 
@@ -73,20 +78,15 @@ def login_required(view):
 def controls():
     if request.method == "POST":
         post_text = request.form["input_text"]
-        flash_text=""
-        if post_text == "uname":
-            flash_text = subprocess.run("uname -a".split(" "), stdout=subprocess.PIPE).stdout
-        elif post_text == "ls":
-            flash_text = subprocess.run("ls -l".split(" "), stdout=subprocess.PIPE).stdout
-        elif post_text == "pwd":
-            flash_text = subprocess.run("pwd", stdout=subprocess.PIPE).stdout
-        elif post_text == "custom":
-            flash_text = subprocess.run("pisite/custom.sh", stdout=subprocess.PIPE, shell=True).stdout
-        else:
-            flash_text = b"looks like you didn't put in a registered command"
 
-        flash("you sent: {}".format(request.form["input_text"]))
-        flash("output:\n{}".format(flash_text.decode()))
+        repl_conn = jsonpickle.decode(session["repl_conn"])
+
+        print(repl_conn)
+
+        results_dict = repl_conn.give_repl_exec_command(post_text)
+        
+        flash("you sent: {}".format(post_text))
+        flash("output:\n{}".format(results_dict))
         return redirect(url_for("controls.controls"))
 
     # else
@@ -99,16 +99,21 @@ def login():
         username = request.form["username"]
         password = request.form["password"]
 
+        valid = False
         try:
-            valid = auth.validate_user(username, password)
-        except basic_auth.UserExistenceException:
+            # contructor throws exeption on bad login
+            repl_conn = repl_connection.REPLConnection(command, username, password)
+            print(repl_conn)
+            
+            valid = True
+        except Exception as e:
             valid = False
+            flash("exception: {}".format(e))
 
-        if not valid:
-            flash("wrong login details")
-        else:
+        if valid:
             session.clear()
             session["user"] = username
+            session["repl_conn"] = jsonpickle.encode(repl_conn)
             flash("big success")
         return redirect(url_for("controls.controls"))
 
