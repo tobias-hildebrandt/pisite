@@ -69,10 +69,10 @@ if __name__ == "__main__":
 
     # print our given absolute filepath or (user + filepath)
     if namespace.location:
-        filepath = os.path.join(namespace.location)
-        print("filepath (absolute): {}".format(filepath))
+        validation_table_filepath = os.path.join(namespace.location)
+        print("filepath (absolute): {}".format(validation_table_filepath))
     else:
-        filepath = os.path.join(os.path.expanduser("~{}".format(namespace.user)), namespace.relative)
+        validation_table_filepath = os.path.join(os.path.expanduser("~{}".format(namespace.user)), namespace.relative)
 
         filepath_format = "filepath {which}: {path}"
         which_filepath = "(default)" if default_relative else "(from argument)"
@@ -89,7 +89,7 @@ if __name__ == "__main__":
 
         # real_width = max(len(user_string), len(filepath_string))
         #user_string = user_format.format(which=which_user, user=namespace.user, width=real_width)
-        filepath_string = filepath_format.format(path=filepath, which=which_filepath)
+        filepath_string = filepath_format.format(path=validation_table_filepath, which=which_filepath)
         print(user_string)
         print(filepath_string)
 
@@ -101,7 +101,7 @@ if __name__ == "__main__":
         # create the file if needed
         if namespace.create:
             # parent of filepath
-            dir_path = os.path.abspath(os.path.join(filepath, os.pardir))
+            dir_path = os.path.abspath(os.path.join(validation_table_filepath, os.pardir))
 
             # if the dir does not exist, attempt to create it
             if not os.path.exists(dir_path):
@@ -109,7 +109,7 @@ if __name__ == "__main__":
                 os.mkdir(dir_path)
 
                 # set permissions and owner
-                os.chmod(dir_path, stat.S_IXUSR | stat.S_IWUSR | stat.S_IRUSR)
+                #os.chmod(dir_path, stat.S_IXUSR | stat.S_IWUSR | stat.S_IRUSR)
                 shutil.chown(dir_path, namespace.user, namespace.user)
             
             # if the file at dir_path is not actually a directory
@@ -117,12 +117,12 @@ if __name__ == "__main__":
                 print("should be a directory not a file: {}".format(dir_path))
                 exit(-1)
             else:
-                if os.path.exists(filepath):
-                    print("file already exists: {}".format(filepath))
+                if os.path.exists(validation_table_filepath):
+                    print("file already exists: {}".format(validation_table_filepath))
                     exit(-1)
                 else:
                     # write the file
-                    print("creating json file: {}".format(filepath))
+                    print("creating json file: {}".format(validation_table_filepath))
 
                     # # write empty file
                     # with open(filepath, "w") as f:
@@ -141,7 +141,7 @@ if __name__ == "__main__":
                                     f.write(DEFAULT_SCRIPTS[key]["text"])
                                 print("creating default script {} at {}".format(key, script_path))
                                 # set permissions and owner
-                                os.chmod(script_path, stat.S_IXUSR | stat.S_IWUSR | stat.S_IRUSR)
+                                os.chmod(script_path, os.stat(script_path).st_mode | stat.S_IXUSR)
                                 shutil.chown(script_path, namespace.user, namespace.user)
                             except OSError:
                                 print("unable to write default script {} to path {}, exiting...".format(key, script_path))
@@ -149,22 +149,22 @@ if __name__ == "__main__":
 
                     
                     # populate file with default scripts
-                    with open(filepath, "w") as f:
+                    with open(validation_table_filepath, "w") as f:
                         json.dump(scripts_data, f)
                     # set permissions and owner
-                    os.chmod(filepath, stat.S_IWUSR | stat.S_IRUSR)
-                    shutil.chown(filepath, namespace.user, namespace.user)
+                    #os.chmod(filepath, stat.S_IWUSR | stat.S_IRUSR)
+                    shutil.chown(validation_table_filepath, namespace.user, namespace.user)
                     print()
         
         # always try to read the data
-        with open(filepath) as f:
+        with open(validation_table_filepath) as f:
             data = json.load(f)
         
     except json.JSONDecodeError:
-        print("unable to decode json file {}".format(filepath))
+        print("unable to decode json file {}".format(validation_table_filepath))
         exit(-1)
     except OSError:
-        print("os error, maybe the file doesn't exist or you don't have permission? {}".format(filepath))
+        print("os error, maybe the file doesn't exist or you don't have permission? {}".format(validation_table_filepath))
         exit(-1)
 
     if namespace.debug:
@@ -217,10 +217,10 @@ if __name__ == "__main__":
     if namespace.add is not None or namespace.delete is not None:
         try:
             # overwrite
-            with open(filepath, "w") as f:
+            with open(validation_table_filepath, "w") as f:
                 json.dump(data, f, indent=4)
         except OSError:
-            print("unable to write to file, maybe you don't have permission? {}".format(filepath))
+            print("unable to write to file, maybe you don't have permission? {}".format(validation_table_filepath))
             exit(-1)
 
     if namespace.read:

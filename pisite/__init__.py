@@ -1,28 +1,32 @@
 import os
 
-from flask import Flask
-
 from flask import (
-    Blueprint, flash, g, redirect, render_template, request, session, url_for
+    Flask, Blueprint, flash, g, redirect, render_template, request, session, url_for
 )
 
 import functools
 import subprocess
 import datetime
-import jsonpickle
+import json
+
+from flask_session import Session
 
 try:
-    import pisite.repl_connection as repl_connection
+    import pisite.easy_executor as executor
 except:
-    import repl_connection
+    import easy_executor
 
 def create_app(test_config=None):
     # create and configure flaskapp
     app = Flask(__name__, instance_relative_config=True)
+
     app.config.from_mapping(
-        SECRET_KEY="dev change me", # TODO: change this
+        SECRET_KEY="abc", # TODO: change this
+        SESSION_TYPE = "redis"
     )
-        
+
+    Session(app)
+    
     if test_config is None:
         # we are using a real config
         app.config.from_pyfile("config.py", silent=True)
@@ -37,7 +41,6 @@ def create_app(test_config=None):
         pass # idk what to do here
         
     # TODO: link stuff
-
     
     @app.route("/hello")
     def hello(): # pylint: disable=unused-variable
@@ -56,10 +59,6 @@ def create_app(test_config=None):
     # return app because we are a factory
     return app
 
-command_name = "repl_shell.py"
-dir_path = os.path.dirname(os.path.realpath(__file__))
-command = "'python {}'".format(os.path.join(dir_path, command_name))
-
 auth_bp = Blueprint("auth", __name__, url_prefix="/")
 
 controls_bp = Blueprint("controls", __name__, url_prefix="/")
@@ -76,22 +75,50 @@ def login_required(view):
 @controls_bp.route("controls", methods=("GET", "POST"))
 @login_required
 def controls():
+    username = session["username"]
     if request.method == "POST":
-        post_text = request.form["input_text"]
+        print("form data is {}".format(request.form))
 
-        repl_conn = jsonpickle.decode(session["repl_conn"])
+        field_input = request.form["input_text"]
 
-        print(repl_conn)
+        script = request.form["command"]
 
-        results_dict = repl_conn.give_repl_exec_command(post_text)
-        
-        flash("you sent: {}".format(post_text))
-        flash("output:\n{}".format(results_dict))
+        # button = request.form
+
+        password = session["password"]
+
+        # print("post_text {} of type {}".format(post_text, type(post_text)))
+        # print("username: {} of type {}".format(username, type(username)))
+        # print("password: {} of type {}".format(password, type(password)))
+
+        # don't do anything on empty input
+        if script != "":
+            flash("you sent: {} {}".format(script, field_input))
+            try:
+                rc, out, err = executor.run_as(username, password, "{} {}".format(script, field_input))
+
+                print("rc:{}\nout:{}\nerr{}".format(rc, out, err))
+                
+                flash("return code: {}".format(rc))
+                flash("stdout:\n{}".format(out))
+                flash("stderr:\n{}".format(err))
+            except subprocess.TimeoutExpired:
+                flash("error! timeout")
+            except json.JSONDecodeError:
+                flash("unable to decode validation table, contact the web administrator!")
+            except OSError:
+                flash("unable to access validation table, contact the web administrator!")
+            except easy_executor.InvalidCommand:
+                flash("invalid command!")
+
         return redirect(url_for("controls.controls"))
 
-    # else
+    # else we are GET
     custom_text = datetime.datetime.now()
-    return render_template("controls.html", customtext="custom variable element, timestamp {}".format(custom_text))
+
+    scripts = easy_executor.get_valid_scripts(username)
+    
+    return render_template("controls.html", scripts=scripts, customtext="custom variable element, timestamp {}".format(custom_text))
 
 @auth_bp.route("login", methods=("GET", "POST"))
 def login():
@@ -102,21 +129,24 @@ def login():
         valid = False
         try:
             # contructor throws exeption on bad login
-            repl_conn = repl_connection.REPLConnection(command, username, password)
-            print(repl_conn)
+            results = executor.run_as(username, password, None)
+
+            print("results: {}".format(results))
             
             valid = True
         except Exception as e:
             valid = False
-            flash("exception: {}".format(e))
+            flash("caught exception on login POST: {}".format(e))
 
         if valid:
             session.clear()
-            session["user"] = username
-            session["repl_conn"] = jsonpickle.encode(repl_conn)
+            session["username"] = username
+            session["password"] = password
             flash("big success")
-        return redirect(url_for("controls.controls"))
-
+            return redirect(url_for("index"))
+        else:
+            # flask bad login
+            flash("bad login")
     # else GET
     return render_template("login.html")
 
@@ -132,5 +162,5 @@ def success():
 
 @auth_bp.before_app_request
 def load_logged_in_user():
-    g.user = session.get("user")
+    g.user = session.get("username")
 

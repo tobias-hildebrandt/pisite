@@ -7,10 +7,10 @@ setup(
       include_package_data=True,
       zip_safe=False,
       install_requires=[
-          'flask',
-          'passlib',
-          'json',
-          'zxcvbn',
-          'copy'
-      ],
+          "flask",
+          "json",
+          "zxcvbn",
+          "copy",
+          "flask_session"
+      ]
 )

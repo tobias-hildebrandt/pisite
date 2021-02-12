@@ -133,3 +133,7 @@ input[type=submit] {
   align-self: start;
   min-width: 10em;
 }
+
+.script > label {
+  user-select: none;
+}
