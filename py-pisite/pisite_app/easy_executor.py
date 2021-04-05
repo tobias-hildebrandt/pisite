@@ -93,7 +93,7 @@ def run_as(username, password, command) -> dict:
     elif command is None:
         # given None
         # tell the subprocess to echo login success, which we filter for in check_login 
-        exec_cmd = shlex.split("echo {}".format(LOGIN_SUCCESS_STRING))
+        exec_cmd = "echo {}".format(LOGIN_SUCCESS_STRING)
     
     # -l act as login shell
     # -c execute command
