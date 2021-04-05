@@ -7,11 +7,11 @@
         <!-- <li><a href="/">Home</a></li> -->
         {% if g.user %} 
             <li><span>Current User: {{g.user}}</span>
-            <li><a href="{{ url_for('controls.controls') }}">Controls</a>
-            <li><a href="{{ url_for('auth.logout') }}">Log Out</a>
+            <li><a href="{{ url_for('controls') }}">Controls</a>
+            <li><a href="{{ url_for('logout') }}">Log Out</a>
         {% else %}
             <li><a href="broken">Register</a>
-            <li><a href="{{ url_for('auth.login') }}">Log In</a>
+            <li><a href="{{ url_for('login') }}">Log In</a>
         {% endif %}
     </ul>
 </nav>

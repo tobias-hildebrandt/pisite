@@ -4,3 +4,8 @@ venv-pisite/
 *htmlcov*
 *.coverage*
 *.code-workspace
+C-pisite/
+go-pisite/
+experimentzone/testkeys/
+*.pipe
+*.pyc

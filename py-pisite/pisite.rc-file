@@ -1,0 +1,21 @@
+# edit this, then move to /etc/rc.d/{name} 
+# make sure it doesn't have an extension
+# chown it to root:root
+
+#!/bin/ksh
+daemon="{insert python executable}" 
+daemon_flags="{gunicorn exetuable} -c [gunicorn config.py] {project python module}:app"
+
+# custom stop and reload commands
+# since rc.subr will try to pgrep python lol
+rc_stop() {
+    kill `cat {pid file}`
+}
+
+rc_reload() {
+    kill -HUP `cat {pid file}`
+}
+
+. /etc/rc.d/rc.subr
+
+rc_cmd $1

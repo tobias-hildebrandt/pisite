@@ -29,9 +29,9 @@ class InvalidCommand(Error):
 def check_login(username, password) -> bool:
     try:
         result = run_as(username, password, None)
-        _logger.info("login result: {}".format(result))
-        (out, _, _) = result
-        return LOGIN_SUCCESS_STRING in out
+        (_, out, _) = result
+        _logger.info("login result : {}".format(result))
+        return (LOGIN_SUCCESS_STRING in out)
     except:
         return False
 
@@ -71,15 +71,23 @@ def run_as(username, password, command) -> dict:
         # tokens[0] must be KEY in validation table
         # tokens[1:] are arguments 
         # split line into tokens
-        exec_cmd = shlex.split(command)
+        split_command = shlex.split(command)
+
+        _logger.info("split command before replacement is {}".format(split_command))
 
         # make sure first token is a KEY in validation table
-        if exec_cmd[0] not in validation_table:
+        if split_command[0] not in validation_table:
             _logger.info("not allowed {}".format(command))
             raise InvalidCommand # exit function
 
         # replace relative (to script dir) path with absolute script path 
-        exec_cmd[0] = os.path.abspath(os.path.join(execution_path_prefix, validation_table[exec_cmd[0]]))
+        split_command[0] = os.path.abspath(os.path.join(execution_path_prefix, validation_table[split_command[0]]))
+
+        _logger.info("split command after replacement is {}".format(split_command))
+        # join the command and arguments back together to prevent injection
+        exec_cmd = ""
+        for token in split_command:
+            exec_cmd += "{} ".format(token)
 
         _logger.info("exec_cmd is {}".format(exec_cmd))
     elif command is None:
@@ -89,9 +97,9 @@ def run_as(username, password, command) -> dict:
     
     # -l act as login shell
     # -c execute command
-    command_as_user = "su {} -l -c".format(username)
+    command_as_user = "su {} -l -c".format(shlex.quote(username))
     args = shlex.split(command_as_user)
-    args.append(" ".join(exec_cmd))
+    args.append(exec_cmd)
 
     _logger.info("args is {}".format(args))
 

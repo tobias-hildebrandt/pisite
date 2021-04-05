@@ -1,13 +1,19 @@
 
 # depedencies:
+python:
 flask
-passlib
-bcrypt
+Flask-Session
+flask-talisman
+pyopenssl (for adhoc certs)
+
+system:
+redis
 
 # links
 https://flask.palletsprojects.com/en/1.1.x/
 https://flask-login.readthedocs.io/en/latest/
 https://passlib.readthedocs.io/en/stable/index.html
+https://flask-session.readthedocs.io/en/latest/
 
 # password storage
 encrypt passwords with passlib/bcrypt
@@ -20,8 +26,17 @@ add validation after yaml read
 change project directory structure
 see if flask-login is necessary
 
+# notes on flask
+https://overiq.com/flask-101/sessions-in-flask/
+session is like a dict that is stored and read in order to process a request
+session data is stored by default in a cookie sent to the client
+client-side sessions should NOT hold sensitive information, they are only signed, not encrypted
+the instance folder is only used with custom server-side instances, such as Flask-Session
+https://stackoverflow.com/questions/19760486/resetting-the-expiration-time-for-a-cookie-in-flask
+
 # client -> server communication
 send raw username+password over HTTPS
+https://flask.palletsprojects.com/en/1.1.x/security/
 
 # permissions brainstorming
 idea 1 (current):

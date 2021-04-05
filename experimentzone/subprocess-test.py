@@ -20,29 +20,42 @@ def monitor_stream(stream):
 if __name__ == "__main__":
     directory = os.path.abspath(os.path.dirname(os.path.abspath(__file__)))
 
-    tmpdir = tempfile.TemporaryDirectory(dir=directory, prefix="tempdir")
+    with tempfile.TemporaryDirectory(dir=directory, prefix="tempdir_") as tmpdir:
 
-    print("tmpdir is {}".format(tmpdir.name))
+        print("tmpdir is {}".format(tmpdir))
 
-    temp_file_stdout = os.mkfifo(os.path.join(tmpdir.name, "tmpout"))
-    temp_file_stderr = os.mkfifo(os.path.join(tmpdir.name, "tmperr"))
-    temp_file_stdin = os.mkfifo(os.path.join(tmpdir.name, "tmpin"))
+        tmpdir_f = open(os.open(tmpdir, os.O_RDONLY))
 
-    proc = subprocess.Popen(["sh"], stdin=temp_file_stdin, stdout=temp_file_stdout, stderr=temp_file_stderr, bufsize=1, universal_newlines=True)
+        tmpdir_fd = tmpdir_f.fileno()
 
-    with open(temp_file_stdin, "w") as stdin:
-        stdin.write("echo hello")
+        temp_file_stdout = os.mkfifo(path="tmpout.pipe", dir_fd=tmpdir_fd)
+        temp_file_stderr = os.mkfifo(path=os.path.join(tmpdir, "tmperr.pipe"))
+        temp_file_stdin = os.mkfifo(path=os.path.join(tmpdir, "tmpin.pipe"))
 
-    thread_out = threading.Thread(target=monitor_stream, args=(temp_file_stdout,))
-    thread_err = threading.Thread(target=monitor_stream, args=(temp_file_stderr,))
+        print("temp stdout is {}".format(temp_file_stdout))
+        print("temp stderr is {}".format(temp_file_stderr))
+        print("temp stdin is {}".format(temp_file_stdin))
 
-    thread_out.start()
-    thread_err.start()
+        print("tmpdir is {}".format(tmpdir))
 
-    
+        assert(temp_file_stdout is not None)
+        assert(temp_file_stderr is not None)
+        assert(temp_file_stdin is not None)
+
+        proc = subprocess.Popen(["sh"], stdin=temp_file_stdin, stdout=temp_file_stdout, stderr=temp_file_stderr, bufsize=1, universal_newlines=True)
+
+        with open(temp_file_stdin, "w") as stdin:
+            stdin.write("echo hello")
+
+        thread_out = threading.Thread(target=monitor_stream, args=(temp_file_stdout,))
+        thread_err = threading.Thread(target=monitor_stream, args=(temp_file_stderr,))
+
+        thread_out.start()
+        thread_err.start()
+
 
     os.unlink(temp_file_stdout)
     os.unlink(temp_file_stderr)
     os.unlink(temp_file_stdin)
-  
+
     tmpdir.cleanup()

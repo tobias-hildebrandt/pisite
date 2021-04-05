@@ -9,79 +9,72 @@ import subprocess
 import datetime
 import json
 
+from flask_talisman import Talisman
 from flask_session import Session
 
 try:
-    import pisite.easy_executor as executor
+    import pisite_app.easy_executor as executor
 except:
-    import easy_executor
+    import easy_executor as executor
 
-def create_app(test_config=None):
-    # create and configure flaskapp
-    app = Flask(__name__, instance_relative_config=True)
 
-    app.config.from_mapping(
-        SECRET_KEY="abc", # TODO: change this
-        SESSION_TYPE = "redis"
-    )
+# create and configure flaskapp
+app = Flask(__name__, instance_relative_config=True)
 
-    Session(app)
-    
-    if test_config is None:
-        # we are using a real config
-        app.config.from_pyfile("config.py", silent=True)
-    else:
-        # we are passing in a test config
-        app.config.from_mapping(test_config)
-    
-    # make sure instance folder exist
-    try:
-        os.makedirs(app.instance_path)
-    except OSError:
-        pass # idk what to do here
-        
-    # TODO: link stuff
-    
-    @app.route("/hello")
-    def hello(): # pylint: disable=unused-variable
-        return """Hello, World! <a href="index">index</a>"""
+# load talisman defaults
+Talisman(app)
 
-    @app.route("/")
-    def index(): # pylint: disable=unused-variable
-        return render_template("index.html")
+# load the base config 
+app.config.from_object("config")
 
-    app.add_url_rule('/', endpoint='index')
+# load deployment-specific config
+app.config.from_pyfile("config.py")
 
-    app.register_blueprint(auth_bp)
+if app.debug:
+    print("SECRET KEY IS: " + app.secret_key)
 
-    app.register_blueprint(controls_bp)
-    
-    # return app because we are a factory
-    return app
+# load flask-session defaults
+Session(app)
 
-auth_bp = Blueprint("auth", __name__, url_prefix="/")
 
-controls_bp = Blueprint("controls", __name__, url_prefix="/")
+app.add_url_rule('/', endpoint='index')
 
+# function decorator to require login
 def login_required(view):
     @functools.wraps(view)
     def wrapped_view(**kwargs):
         if g.user is None:
-            return redirect(url_for('auth.login'))
+            return redirect(url_for('login'))
         
         return view (**kwargs)
     return wrapped_view
 
-@controls_bp.route("controls", methods=("GET", "POST"))
+# run before each request
+@app.before_request
+def load_logged_in_user():
+    # load stuff into g, which can be used in templates
+    g.user = session.get("username")
+
+# link all the routes
+
+@app.route("/")
+def index():
+    return render_template("index.html")
+
+@app.route("/controls", methods=("GET", "POST"))
 @login_required
 def controls():
     username = session["username"]
     if request.method == "POST":
         print("form data is {}".format(request.form))
 
-        field_input = request.form["input_text"]
-
-        script = request.form["command"]
+        try:
+            field_input = request.form["input_text"]
+            script = request.form["command"]
+        except KeyError:
+            # user did not fill out some field
+            flash("invalid input")
+            return redirect(url_for("controls"))
 
         # button = request.form
 
@@ -108,40 +101,41 @@ def controls():
                 flash("unable to decode validation table, contact the web administrator!")
             except OSError:
                 flash("unable to access validation table, contact the web administrator!")
-            except easy_executor.InvalidCommand:
+            except executor.InvalidCommand:
                 flash("invalid command!")
 
-        return redirect(url_for("controls.controls"))
+        return redirect(url_for("controls"))
 
     # else we are GET
-    custom_text = datetime.datetime.now()
+    custom_text = datetime.datetime.now().ctime()
 
-    scripts = easy_executor.get_valid_scripts(username)
+    scripts = executor.get_valid_scripts(username)
     
-    return render_template("controls.html", scripts=scripts, customtext="custom variable element, timestamp {}".format(custom_text))
+    return render_template("controls.html", scripts=scripts, customtext="Page loaded at: {}".format(custom_text))
 
-@auth_bp.route("login", methods=("GET", "POST"))
+@app.route("/login", methods=("GET", "POST"))
 def login():
     if request.method == "POST":
-        username = request.form["username"]
-        password = request.form["password"]
-
+        
         valid = False
         try:
+            username = request.form["username"]
+            password = request.form["password"]
             # contructor throws exeption on bad login
-            results = executor.run_as(username, password, None)
+            success = executor.check_login(username, password)
 
-            print("results: {}".format(results))
+            print("login success: {}".format(success))
             
-            valid = True
+            valid = success
         except Exception as e:
             valid = False
-            flash("caught exception on login POST: {}".format(e))
+            print("caught exception on login POST: {}".format(e))
 
         if valid:
             session.clear()
             session["username"] = username
             session["password"] = password
+            session.permanent = True
             flash("big success")
             return redirect(url_for("index"))
         else:
@@ -150,17 +144,7 @@ def login():
     # else GET
     return render_template("login.html")
 
-@auth_bp.route("logout")
+@app.route("/logout")
 def logout():
     session.clear()
     return redirect(url_for('index'))
-
-@auth_bp.route("success")
-@login_required
-def success():
-    return '''BIG NUTT <a href="/">home</a>'''
-
-@auth_bp.before_app_request
-def load_logged_in_user():
-    g.user = session.get("username")
-
