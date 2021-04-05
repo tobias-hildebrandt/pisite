@@ -39,7 +39,7 @@ send raw username+password over HTTPS
 https://flask.palletsprojects.com/en/1.1.x/security/
 
 # permissions brainstorming
-idea 1 (current):
+idea 1:
 - data store contains application-specific usernames+passwords
 - "groups" and "permissions" in data store define which commands a user can run
 - the web server calls a subprocess to run a command
@@ -73,6 +73,25 @@ idea 4 (?):
 idea 5:
 - same as 1, but have a separate process with sudo permissions read from a work queue or something
 - isolates permission escalation attack vector to a separate program
+
+# ajax methods
+two ajax applications, one on the pi and one on the main server
+main server connection is only open to the pi (some kind of encrypted connection, maybe switch to rpc or something)
+pi:
+    login (done entirely pi-side?)
+    serves JS+HTML application after login
+    add buttons specific to each user
+    buttons may include:
+        turn on main server
+        start minecraft server
+        start/stop monitor?
+    some buttons are unclickable if main server is not on
+    ajax needs a short timeout in case main server is off
+main server:
+    HTTP api only (no interface)
+    needs api endpoints for each button
+    set up some kind of auto-shutdown? (maybe separate from the api program)
+    add some kind of mutex lock for executing shell programs or use work queue
 
 # examples of similar projects
 https://en.wikipedia.org/wiki/Web_hosting_control_panel
