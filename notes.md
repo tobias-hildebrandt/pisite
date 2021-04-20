@@ -1,13 +1,6 @@
 
 # depedencies:
-python:
-flask
-Flask-Session
-flask-talisman
-pyopenssl (for adhoc certs)
-
-system:
-redis
+see required_packges.txt
 
 # links
 https://flask.palletsprojects.com/en/1.1.x/
@@ -21,10 +14,10 @@ use a dictionary to store them
 write to text file 
 
 # TODO:
-add group permissions to basic_auth
-add validation after yaml read
-change project directory structure
-see if flask-login is necessary
+add actual account system (look back in git and re-use code?)
+add buttons
+test deployment on real hardware
+add autoshutdown
 
 # notes on flask
 https://overiq.com/flask-101/sessions-in-flask/
@@ -76,22 +69,43 @@ idea 5:
 
 # ajax methods
 two ajax applications, one on the pi and one on the main server
-main server connection is only open to the pi (some kind of encrypted connection, maybe switch to rpc or something)
+RESTful API on endpoint /api/*
+html+js on /{index,login,controls,etc...}
+main server connection is only open to the pi (via IP check and API key check)
 pi:
-    login (done entirely pi-side?)
-    serves JS+HTML application after login
-    add buttons specific to each user
+    login (via session cookies)
+    serves JS+HTML application
+    add buttons specific to each user, maybe?
     buttons may include:
         turn on main server
         start minecraft server
-        start/stop monitor?
-    some buttons are unclickable if main server is not on
-    ajax needs a short timeout in case main server is off
+    ajax needs short timeout in case main server is off
 main server:
-    HTTP api only (no interface)
-    needs api endpoints for each button
+    HTTP api only (no graphical interface)
+    needs api endpoints for each game control
     set up some kind of auto-shutdown? (maybe separate from the api program)
-    add some kind of mutex lock for executing shell programs or use work queue
+    add some kind of mutex lock for executing shell programs or use work queue?
+
+RESTful API on pi (
+    all require valid cookie except /api/login,
+    maybe attempt to deny http clients that say they are a web browser?
+):
+/api/login:
+    POST will log in and return a session cookie
+/api/logout:
+    POST will invalidate session cookie
+/api/controls:
+    GET will return all available controls to the cookie, maybe??
+/api/power:
+    GET will return status of the server (via ping)
+    POST will send out wake-on-lan magic packet
+/api/main/*
+    will forward request to mainserver and send back response
+
+RESTful API on mainserver (all require pi's certificate in request):
+/api/*:
+    GET will return status of a game server
+    POST will perform an operation on the server, e.g. {"operation": "on"}
 
 # examples of similar projects
 https://en.wikipedia.org/wiki/Web_hosting_control_panel

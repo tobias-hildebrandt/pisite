@@ -1,21 +1,14 @@
 {% extends 'base.html' %}
-
 {% block header %}
     <h1>{% block title %}Controls{% endblock %}</h1>
 {% endblock %}
-
 {% block content %}
-    <p>{{ customtext }}</p>
-    <form method="post">
-        <label for="input_text">args: <input name="input_text"></label>
-        <br>
-        {% for script_name in scripts %}
-            <div class="script">
-                <input type="radio" name="command" id="{{script_name}}" value="{{ script_name }}">
-                <label for="{{script_name}}">{{ script_name }}</label>
-            </div>
-        {% endfor %}
+    <form method="post" id="userInput">
+        <label for="test">test input: <input name="test"></label>
         <br>
         <input type="submit" value="Submit">
     </form>
+    <div id="status"></div>
+    <br>
+    <div id="result"></div>
 {% endblock %} 
