@@ -3,12 +3,31 @@
     <h1>{% block title %}Controls{% endblock %}</h1>
 {% endblock %}
 {% block content %}
-    <form method="post" id="userInput">
+    <div id="main">
+        <h3>Main Server Status</h3>
+        <div class="status">needs JS</div>
+        <button class="update">Update All</button>
+        <button class="power">Turn On</button>
+    </div>
+    <div class="group" id="minecraft">
+        <h3>Minecraft Server</h3>
+        <div class="status" >needs JS</div>
+        <button class="update" disabled>Update Status</button>
+        <button class="power" disabled>Turn On</button>
+        <button id="dynmap" disabled>Dynmap</button>
+    </div>
+    <div class="group" id="left">
+        <h3>Left 4 Dead 2 Server</h3>
+        <div class="status">needs JS</div>
+        <button class="update" disabled>Update Status</button>
+        <button class="power" disabled>Turn On</button>
+    </div>
+    <!-- <form method="post" id="userInput">
         <label for="test">test input: <input name="test"></label>
         <br>
         <input type="submit" value="Submit">
     </form>
     <div id="status"></div>
     <br>
-    <div id="result"></div>
+    <div id="result"></div> -->
 {% endblock %} 

@@ -19,7 +19,7 @@ from flask_session import Session
 app = flask.Flask(__name__, instance_relative_config=True)
 
 # load talisman defaults
-# Talisman(app)
+Talisman(app)
 
 # load the base config 
 app.config.from_object("config")
@@ -70,15 +70,12 @@ def before():
     flask.g.user = flask.session.get("username")
 
     # debug cookies
-    print_session_cookies()
+    # print_session_cookies()
 
     # print request headers
-    print("headers:")
-    for header in flask.request.headers:
-        print(header)
-    
-    # set the domain property of cookie
-    # session['domain'] = request.headers['Host']
+    # print("headers:")
+    # for header in flask.request.headers:
+    #     print(header)
 
 
 # link all the routes
@@ -97,7 +94,24 @@ def page_controls():
 def page_login():
     return flask.render_template("login.html")
 
-## API routes
+#TODO: put these on mainsite and forward requests
+# @app.route("/dynmap", methods=("GET",))
+# @page_require_login
+# def page_dynmap():
+#     return flask.send_file("dynmap/web/index.html")
+
+# @app.route("/dynmap/<path:ext>", methods=("GET",))
+# @require_login
+# def dynmap_ext(ext):
+#     filepath = "pisite_app/dynmap/{}".format(ext)
+#     # print("current dir: {}".format(os.path.abspath(os.curdir)))
+#     # print("filepath: {}".format(filepath))
+#     if os.path.exists(filepath):
+#         return flask.send_file("dynmap/{}".format(ext))
+#     else:
+#         return flask.abort(404)
+
+# API routes
 
 @app.route("/api/login", methods=("POST",))
 def api_login():
@@ -160,8 +174,15 @@ def power():
     if flask.request.method == "GET":
         command = shlex.split("ping -c 1 -W 1 {}".format(app.config["MAIN_IP"]))
         pingable = subprocess.run(command).returncode == 0 # returncode 0 is success
+
+        connectable = False
+        response: flask.Response = forward_to_main("/api/ack")
+        if json.loads(response.data)["success"]:
+            connectable = True
+
         return ResponseData(True, None, {
-            "is_main_pingable": pingable
+            "is_main_pingable": pingable,
+            "is_main_connectable": connectable
         })()
     if flask.request.method == "POST":
         # send the WoL packet
@@ -190,23 +211,53 @@ def test():
 
 ## forwarded routes to main
 
+# main api endpoints
 @app.route("/api/main/<endpoint>", methods=("GET", "POST"))
 @require_login
-def forward_to_main(endpoint):
+def forward_api_to_main(endpoint):
+    return forward_to_main("api/{}".format(endpoint))
+
+# dynmap
+@app.route("/dynmap", methods=("GET",))
+@page_require_login
+def page_dynmap():
+    return forward_to_main("dynmap")
+
+@app.route("/dynmap/<path:ext>", methods=("GET",))
+@require_login
+def dynmap_ext(ext):
+    return forward_to_main("dynmap/{}".format(ext))
+
+## helper code
+
+def forward_to_main(main_endpoint) -> flask.Response:
+    main_url = "https://{}:{}/{}".format(
+        app.config["MAIN_IP"],
+        app.config["MAIN_PORT"],
+        main_endpoint
+    )
+    new_headers = {}
+    for (key, val) in flask.request.headers:
+        new_headers[key] = val
+    new_headers["Api-key"] = PI_API_KEY
     try:
-        response: requests.Response = request_session.request(
+        main_response: requests.Response = request_session.request(
             method=flask.request.method,
-            url="https://127.0.0.1:5001/api/{}".format(endpoint),
-            headers={"Api-key": PI_API_KEY},
+            url=main_url,
+            headers=new_headers,
             data=flask.request.data,
             timeout=request_timeout
         )
-        print(response.text)
-        return flask.jsonify(json.loads(response.text))
+
+        response: flask.Response = flask.make_response()
+        response.status = str(main_response.status_code)
+        for (key, val) in main_response.headers.items():
+            response.headers[key] = val
+        response.data = main_response.content
+        
+        return response
     except requests.exceptions.ReadTimeout:
-        return ResponseData(False, "connection to main timed out", {
-            "timeout_in_seconds": request_timeout
-        })()
+        return ResponseData(False, "connection to main timed out")()
     except requests.exceptions.ConnectionError:
         return ResponseData(False, "unable to connect to main")()
     except json.decoder.JSONDecodeError:

@@ -51,6 +51,8 @@ def verify_connection():
 
 # link all the routes
 
+## API routes
+
 @app.route("/api/ack", methods=("GET", ))
 def ack():
     return ResponseData(True, "pong! :)")()
@@ -107,6 +109,26 @@ def minecraft():
             return ResponseData(False, "unimplemented")()
         else:
             return ResponseData(False, "invalid operation")()
+
+@app.route("/api/left", methods=("GET", "POST"))
+def left():
+    if flask.request.method == "GET":
+        return ResponseData(False, "unimplemented")()
+    if flask.request.method == "POST":
+        return ResponseData(False, "unimplemented")()
+
+## dynmap
+
+@app.route("/dynmap", methods=("GET",))
+def page_dynmap():
+    return flask.send_from_directory(app.config["DYNMAP_PATH"], "web/index.html")
+
+# send anything inside the DYNMAP_PATH directory
+@app.route("/dynmap/<path:ext>", methods=("GET",))
+def dynmap_ext(ext):
+    return flask.send_from_directory(app.config["DYNMAP_PATH"], ext)
+
+## helper code
 
 class MinecraftStatus():
     def __init__(self):

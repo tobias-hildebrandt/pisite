@@ -15,9 +15,10 @@ write to text file
 
 # TODO:
 add actual account system (look back in git and re-use code?)
-add buttons
+add auto-refresh status divs during boot up
 test deployment on real hardware
-add autoshutdown
+add autoshutdown for games and hardware
+rewrite html+js frontend in some more organized framework
 
 # notes on flask
 https://overiq.com/flask-101/sessions-in-flask/
@@ -30,42 +31,6 @@ https://stackoverflow.com/questions/19760486/resetting-the-expiration-time-for-a
 # client -> server communication
 send raw username+password over HTTPS
 https://flask.palletsprojects.com/en/1.1.x/security/
-
-# permissions brainstorming
-idea 1:
-- data store contains application-specific usernames+passwords
-- "groups" and "permissions" in data store define which commands a user can run
-- the web server calls a subprocess to run a command
-- possible to use doas/sudo to allow subprocess to change unix users, instead of command running as the web server's unix user
-- must configure doas/sudo to allow the web server's unix user permission to execute certain commands as each user
-
-idea 2:
-- data store contains application-specific usernames+passwords
-- contains ssh private key instead of "group" or "permissions"
-- each machine to which the user needs access (including local machine?) must have a unix account set up that accepts the key
-- administration & permission control is done via unix 
-- on web page button press, web server would use an ssh client to connect to a machine to run a command as that remote unix user
-- could still limit access via web server (?) only accept certain command in POSTs
-
-idea 3:
-- no data store
-- user would use unix username and half-password to "log in" 
-- keep some kind of logged-in process active during session (chrooted? REPL? unset $PROMPT?)
-- set unix password to the half-password mixed with a secret stored by the server
-- thus, users cannot log in via standalone ssh, only through the web server
-- to run command, web server uses subprocess (REPL? which creates its own workers) which is run *as* the unix user via su and piped password
-- use shared data structure / unix sockets / unix named pipes
-- administration & permission control is done via unix
-
-idea 4 (?):
-- the webserver serves a webpage with a js ssh client with some preset buttons that do something in the ssh client
-- single page application? entirely front end, no async with web server
-- dead simple web server (just serve the SPA and let ssh do the work lmao)
-- all permissions, auth, administration would be done via unix & ssh
-
-idea 5:
-- same as 1, but have a separate process with sudo permissions read from a work queue or something
-- isolates permission escalation attack vector to a separate program
 
 # ajax methods
 two ajax applications, one on the pi and one on the main server
@@ -107,32 +72,8 @@ RESTful API on mainserver (all require pi's certificate in request):
     GET will return status of a game server
     POST will perform an operation on the server, e.g. {"operation": "on"}
 
-# examples of similar projects
-https://en.wikipedia.org/wiki/Web_hosting_control_panel
-https://github.com/topics/control-panel
-virtualmin https://github.com/virtualmin/virtualmin-gpl 
-webmin https://github.com/webmin/webmin 
-- seems to execute subprocesses as unix user using su and uses unix pipes to communicate with processes
-- allows users in sudo group to log in via unix
-- webmin process runs as root :/
-usermin
-cpanel
-plesk
-cockpit https://cockpit-project.org/ https://cockpit-project.org/blog/is-cockpit-secure.html https://github.com/cockpit-project/cockpit
-- login with unix user, sudo group not required
-- cockpit-session daemon runs as root (only runs whenever a user session is connected)
-- webserver runs as cockpit-ws
-- each user session is run as that user
-
-https://github.com/hestiacp/hestiacp
-https://github.com/itamarjp/yawep - runs commands as web server user, edits text files, etc
-https://github.com/gumslone/GumCP - uses ssh to connect, only connects to localhost as one user, stores password in config file (wtf)
-https://github.com/adminstock/ssa - same thing as GumCP "All commands are executed via sudo." WTF
-https://github.com/Maxelweb/ServerRemoteConsoleSAMP - same fucken thing
-https://github.com/netserva/hcp - same shit different project
-
-# FUTURE: transpile to javascript
-make sure it complies with libreJS and has permissible license
+# alternatives to javascript
+make sure it complies with libreJS and has permissible license?
 typescript or coffescript
 dart
 gwt - google web toolkit (java)
@@ -144,3 +85,49 @@ webassembly (c/c++/rust/many more, interact with DOM through JS)
 haxe
 any language that can transpile to JS:
 https://github.com/jashkenas/coffeescript/wiki/List-of-languages-that-compile-to-JS
+
+# dynmap
+install dynmap to minecraft server (put the jar in /mods)
+start minecraft server to generate files
+stop server
+
+move `$(mc install location)/dynmap/map` to `DYNMAP_PATH` (instance `config.py`)
+`dynmap/web/` should have:
+    css/
+    images/
+    js/
+    index.html
+    etc...
+to every href or src tag in `index.html`, insert `dynmap/web/` (config.js should be in standalone, see below to generate it)
+edit (only) absolute paths in files found in `grep -r . -e "images/"` and `grep -r . -e "js/"`
+add `dynmap/web/`
+thus, `js/map.js`, `js/hdmap.js`, `js/playermarkers.js`, NOT! `css/leaflet.css`, `css/dynmap_style.css`
+`link.png` in `css/dynmap_style.css` needs to be absolute
+edit configuration.txt in `$(mc install location)/dynmap/configuration.txt`
+<!-- to generate `standalone/config.js`, `disable-webserver` should be false, even with `class: org.dynmap.JsonFileClientUpdateComponent` active
+start the server, it should generate the `standalone/config.js`
+then, `disable-webserver` can be set to true (be sure the edit the paths!!)
+alternatively, copy-paste this into `standalone/config.js`:-->
+```js
+var config = {
+    url : {
+        configuration: 'dynmap/web/standalone/dynmap_config.json?_={timestamp}',
+        update: 'dynmap/web/standalone/dynmap_{world}.json?_={timestamp}',
+        sendmessage: 'dynmap/web/standalone/sendmessage.php',
+        login: 'dynmap/web/standalone/login.php',
+        register: 'dynmap/web/standalone/register.php',
+        tiles: 'dynmap/web/tiles/',
+        markers: 'dynmap/web/tiles/'
+    }
+};
+```
+actually, it looks like `standalone/config.js` is generated on the fly somehow
+so we will just change where the html/js looks for it in `index.html`
+change the line from `standalone/config.js` to `custom_config.js` and copy-paste above js lines into `custom_config.js`
+also, move the js code out of `index.html` and into `custom_config.js`
+
+to change what part of the world is rendered, edit `$(mc install location)/dynmap/worlds.txt`
+the indentation is funky, but set text editor to yaml with tab spacing of 2
+
+~~to disable clock, comment out all of timeofdayclock.js~~
+to disable clock, comment out lines in `$(mc install location)/dynmap/configuration.txt` concerning "clock"
