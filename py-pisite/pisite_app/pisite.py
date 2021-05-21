@@ -2,6 +2,7 @@ import os
 
 import flask
 from pisite_app.common import ResponseData, load_data, print_session_cookies
+import pisite_app.auth as auth
 
 import functools
 import subprocess
@@ -40,7 +41,11 @@ request_session: requests.Session = requests.Session()
 request_timeout = 1 # seconds
 request_session.verify = app.config["PATH_TO_MAIN_CERTFILE"]
 
+# set up api key
 PI_API_KEY = app.config["PI_API_KEY"]
+
+# set up auth 
+auth_obj = auth.Auth(app.config["STORE_FILEPATH"])
 
 # function decorator to require login
 def require_login(func):
@@ -129,13 +134,17 @@ def api_login():
     try:
         username = data["username"]
         password = data["password"]
+
+        # auth_obj._print_all()
         
         # validate login here
-        if username is not None and username != "" and password is not None and password != "":
-            valid = True
+        if username is None or username == "" or password is None or password is "":
+            valid = False
+        else:
+            valid, message = auth_obj.validate_user(username, password)
         
-        print("valid login? {} {}: {}".format(username, password, valid))
-    except json.decoder.JSONDecodeError:
+        print("valid login? {} {}: {}, {}".format(username, password, valid, message))
+    except (json.decoder.JSONDecodeError, KeyError):
         valid = False
         return ResponseData(False, "must include fields username and password", fail_data)()
 
@@ -167,6 +176,64 @@ def api_controls():
             ("left 4 dead 2", "/api/main/l4d2"),
         ]
     })()
+
+@app.route("/api/account", methods=("GET", "POST"))
+@require_login
+def api_account():
+    username = flask.session["username"]
+    if flask.request.method == "GET":
+        return ResponseData(True, None, {
+            "username": username
+        })()
+    if flask.request.method == "POST":
+        try:
+            data = json.loads(flask.request.data)
+        except json.decoder.JSONDecodeError:
+            return ResponseData(False, "invalid JSON")()
+        try:
+            new_password = data["new_password"]
+
+            success, message = auth_obj.change_password(username, new_password)
+
+            if not success:
+                return ResponseData(False, message)()
+            else:
+                return ResponseData(True)()
+        
+        except (json.JSONDecodeError, KeyError):
+            return ResponseData(False, "must include field new_password")()
+
+@app.route("/api/admin", methods=("GET", "POST"))
+@require_login
+def api_admin():
+    if flask.session["username"] != "admin":
+        return ResponseData(False, "unauthorized")()
+
+    if flask.request.method == "GET":
+        usernames = auth_obj.get_usernames()
+        reg_keys = auth_obj.get_reg_keys()
+        return ResponseData(True, None, {
+            "users": usernames,
+            "reg_keys": reg_keys
+        })()
+    if flask.request.method == "POST":
+        try:
+            data = json.loads(flask.request.data)
+        except json.decoder.JSONDecodeError:
+            return ResponseData(False, "invalid JSON")()
+
+        try:
+            operation = data["operation"]
+            target = data["target"]
+        except KeyError:
+            return ResponseData(False, "must include fields operation and target")()
+        
+        if operation == "delete_user":
+            success = auth_obj.remove_user(target)
+            return ResponseData(success)()
+        if operation == "delete_reg_key":
+            success = auth_obj.remove_reg_key(target)
+            return ResponseData(success)()
 
 @app.route("/api/power", methods=("POST", "GET"))
 @require_login

@@ -13,3 +13,5 @@ experimentzone/testkeys/
 testmc/
 py-pisite/instance/
 *dynmap/
+oldauth/
+rust-pisite/

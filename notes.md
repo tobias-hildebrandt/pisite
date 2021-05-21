@@ -19,6 +19,8 @@ add auto-refresh status divs during boot up
 test deployment on real hardware
 add autoshutdown for games and hardware
 rewrite html+js frontend in some more organized framework
+replace jsonpickle with something that works
+use SQLite instead of text file
 
 # notes on flask
 https://overiq.com/flask-101/sessions-in-flask/
