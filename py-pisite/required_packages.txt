@@ -5,6 +5,8 @@ flask-talisman
 on pi:
 requests
 wakeonlan
+Flask-SQLAlchemy
+sqlalchemy
 
 on main:
 libtmux

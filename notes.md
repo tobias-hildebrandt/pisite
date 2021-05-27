@@ -1,6 +1,6 @@
 
 # depedencies:
-see required_packges.txt
+see required_packages.txt
 
 # links
 https://flask.palletsprojects.com/en/1.1.x/
@@ -14,13 +14,12 @@ use a dictionary to store them
 write to text file 
 
 # TODO:
-add actual account system (look back in git and re-use code?)
 add auto-refresh status divs during boot up
 test deployment on real hardware
 add autoshutdown for games and hardware
 rewrite html+js frontend in some more organized framework
-replace jsonpickle with something that works
-use SQLite instead of text file
+finish api for registratation, account management, and admin panel
+move session into database?
 
 # notes on flask
 https://overiq.com/flask-101/sessions-in-flask/
