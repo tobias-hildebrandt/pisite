@@ -270,7 +270,6 @@ def change_password(user: User, new_password) -> (bool, str):
     db.session.commit()
 
     return True, user.username
-    # return False, "unimplemented"
 
 def _hash_password(plain_password, salt=None) -> (str, str):
     # split on '$' and pick last element to ignore $2b$12
