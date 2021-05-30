@@ -18,26 +18,20 @@ class ResponseData():
             "data": self.data
         })
 
-        # username = session.get("username")
-        # session["username"] = username
-
         return response
     
     def __call__(self):
         return self.as_response()
 
-# can throw json.decoder.JSONDecodeError
-def load_data(request):
-    data = json.loads(request.data)
-    return data
 
-def print_session_cookies():
-    print("cookies:")
+def print_session_values():
+    print("session:", end=" ")
     for key in flask.session:
-        print("{}: {}".format(key, flask.session[key]))
+        print("{}: {}".format(key, flask.session[key]), end=", ")
+    print()
 
-if __name__ == "__main__":
-    request = ResponseData(True)
-    request.data = "not json"
-
-    test = load_data(request)
+def print_request_headers():
+    print("headers:", end=" ")
+    for header in flask.request.headers:
+        print(header, end=", ")
+    print()

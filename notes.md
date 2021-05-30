@@ -8,11 +8,6 @@ https://flask-login.readthedocs.io/en/latest/
 https://passlib.readthedocs.io/en/stable/index.html
 https://flask-session.readthedocs.io/en/latest/
 
-# password storage
-encrypt passwords with passlib/bcrypt
-use a dictionary to store them
-write to text file 
-
 # TODO:
 add auto-refresh status divs during boot up
 test deployment on real hardware
@@ -20,6 +15,7 @@ add autoshutdown for games and hardware
 rewrite html+js frontend in some more organized framework
 finish api for registratation, account management, and admin panel
 move session into database?
+add logging
 
 # notes on flask
 https://overiq.com/flask-101/sessions-in-flask/
@@ -33,35 +29,43 @@ https://stackoverflow.com/questions/19760486/resetting-the-expiration-time-for-a
 send raw username+password over HTTPS
 https://flask.palletsprojects.com/en/1.1.x/security/
 
-# ajax methods
-two ajax applications, one on the pi and one on the main server
-RESTful API on endpoint /api/*
+# http methods
+two HTTP applications, one on the pi and one on the main server
+HTTP API (kind-of RESTful) on endpoint /api/*
 html+js on /{index,login,controls,etc...}
 main server connection is only open to the pi (via IP check and API key check)
 pi:
     login (via session cookies)
     serves JS+HTML application
-    add buttons specific to each user, maybe?
-    buttons may include:
+    page for administration
+    page for password change
+    page for registration
+    buttons on control page include:
         turn on main server
-        start minecraft server
-    ajax needs short timeout in case main server is off
+        status of game servers
+        turn on/off(?) game servers
+    http requests needs short timeout in case main server is off
 main server:
     HTTP api only (no graphical interface)
     needs api endpoints for each game control
     set up some kind of auto-shutdown? (maybe separate from the api program)
     add some kind of mutex lock for executing shell programs or use work queue?
 
-RESTful API on pi (
-    all require valid cookie except /api/login,
-    maybe attempt to deny http clients that say they are a web browser?
-):
+HTTP API on pi (all require valid, logged-in cookie except /api/login):
 /api/login:
     POST will log in and return a session cookie
 /api/logout:
     POST will invalidate session cookie
+/api/register:
+    POST will attempt to register an account with given registration key
+/api/account:
+    GET will get current username (maybe also group details?)
+    POST will change password (maybe change endpoint?)
+/api/admin (requires user in admin group):
+    GET will get all users, groups, and registration keys
+    POST will allow for creating registration keys, deleting accounts, changing user groups (maybe create new endpoint for each)
 /api/controls:
-    GET will return all available controls to the cookie, maybe??
+    GET will return all controls available to the cookie, maybe??
 /api/power:
     GET will return status of the server (via ping)
     POST will send out wake-on-lan magic packet
@@ -69,6 +73,8 @@ RESTful API on pi (
     will forward request to mainserver and send back response
 
 RESTful API on mainserver (all require pi's certificate in request):
+/api/ack:
+    GET will respond
 /api/*:
     GET will return status of a game server
     POST will perform an operation on the server, e.g. {"operation": "on"}

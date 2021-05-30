@@ -1,7 +1,7 @@
 import os
 
 import flask
-from pisite_app.common import ResponseData, load_data, print_session_cookies
+from pisite_app.common import ResponseData, print_session_values, print_request_headers
 import pisite_app.auth as auth
 
 import functools
@@ -115,13 +115,10 @@ def before():
 
     print("request from user: {}".format(str(user)))
 
-    # debug cookies
-    # print_session_cookies()
-
-    # print request headers
-    # print("headers:")
-    # for header in flask.request.headers:
-    #     print(header)
+    # debug prints
+    if app.debug:
+        # print_session_values()
+        print_request_headers()
 
 
 # link all the routes
@@ -157,7 +154,8 @@ def api_login():
     valid, user = auth.validate_user(username, password)
     
     # TODO: remove this to not leak password attempts in terminal
-    print("valid login? {} {}: {}".format(username, password, valid))
+    if app.debug:
+        print("valid login? {} {}: {}".format(username, password, valid))
     
     if valid:
         # set session user_id
