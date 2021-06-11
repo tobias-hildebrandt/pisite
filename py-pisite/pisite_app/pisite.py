@@ -1,7 +1,7 @@
 import os
 
 import flask
-from pisite_app.common import ResponseData, print_session_values, print_request_headers
+from pisite_app.common import ResponseData, print_session_values, print_request_headers, Endpoint, jsonify_if_dataclass, StatusResponse
 import pisite_app.auth as auth
 
 import functools
@@ -19,8 +19,16 @@ from flask_session import Session
 # create and configure flaskapp
 app = flask.Flask(__name__, instance_relative_config=True)
 
-# load talisman defaults
-Talisman(app)
+# load talisman 
+# https://stackoverflow.com/a/50873957
+# https://github.com/angular/angular-cli/issues/3430
+# angular requires inline for script and style
+csp = {
+    "default-src": "'self'",
+    "script-src": "'self' 'unsafe-inline' 'unsafe-eval'", # maybe not unsafe-eval in production?
+    "style-src": "'self' 'unsafe-inline'"
+}
+Talisman(app, content_security_policy=csp)
 
 # load the base config 
 app.config.from_object("config")
@@ -37,7 +45,7 @@ Session(app)
 # set up sqlalchemy inside auth
 auth.db.init_app(app)
 
-app.add_url_rule('/', endpoint='index')
+# app.add_url_rule('/', endpoint='index')
 
 # set up http client with certificates
 request_session: requests.Session = requests.Session()
@@ -50,7 +58,7 @@ def require_login(func):
     def wrapped_func(**kwargs):
         if flask.session.get("user_id") is None:
             # session["username"] = None
-            return ResponseData(False, "login required")()
+            return ResponseData(False, "login required")
         
         return func (**kwargs)
     return wrapped_func
@@ -64,7 +72,7 @@ def require_group(group):
             desired_group = auth.Group.query.filter(auth.Group.name == group).first()
 
             if desired_group is None or desired_group not in user.groups:
-                return ResponseData(False, "insufficient group membership")()
+                return ResponseData(False, "insufficient group membership")
 
             return func (**kwargs)
         return wrapped_func
@@ -103,9 +111,8 @@ def require_json_fields(post: list=None, get: list=None):
             return func (**kwargs)
         return wrapped_func
     return decorator
-    
 
-# run before each request
+# run before each request is processed
 @app.before_request
 def before():
     user = current_user()
@@ -124,23 +131,24 @@ def before():
 # link all the routes
 
 ## HTML+JS page routes
-@app.route("/")
+
+@app.route("/", methods=("GET",))
 def index():
-    return flask.render_template("index.html")
+    return flask.send_from_directory(app.config["ANGULAR_BASE_DIR"], "index.html")
 
-@app.route("/controls", methods=("GET",))
-@page_require_login
-def page_controls():
-    return flask.render_template("controls.html")
+@app.route("/<path:path>", methods=("GET",))
+def angular(path):
+    return flask.send_from_directory(app.config["ANGULAR_BASE_DIR"], path)
 
-@app.route("/login", methods=("GET",))
-def page_login():
-    return flask.render_template("login.html")
+# @app.errorhandler(404)
+# def page_404(error):
+#     return "<h1>404 error</h1>" # TODO: real 404 page
 
 # API routes
 
 # attempt to login user, will log out user before attempting
 @app.route("/api/login", methods=("POST",))
+@jsonify_if_dataclass
 @require_json_fields(post=["username", "password"])
 def api_login():
 
@@ -163,34 +171,39 @@ def api_login():
         flask.session.permanent = True
         return ResponseData(True, None, {
             "current_user": username
-        })()
+        })
     else:
         # on fail, tell user that it is logged out
         return ResponseData(False, "invalid login details", {
             "current_user": None
-        })()
+        })
 
 @app.route("/api/logout", methods=("POST",))
+@jsonify_if_dataclass
 def api_logout():
     # TODO: invalidate session
     flask.session["user_id"] = None
     return ResponseData(True, None, {
         "current_user": None
-    })()
+    })
 
 # TODO: remove this?
-@app.route("/api/controls", methods=("GET",))
+@app.route("/api/endpoints", methods=("GET",))
+@jsonify_if_dataclass
 @require_login
-def api_controls():
+def api_endpoints():
     # TODO: get information from main
-    return ResponseData(True, None, {
-        "controls": [
-            ("minecraft", "/api/main/mc"),
-            ("left 4 dead 2", "/api/main/l4d2"),
+    return ResponseData(True, None,
+        [
+            Endpoint("minecraft", "/api/main/mc"),
+            Endpoint("left 4 dead 2", "/api/main/left"),
+            Endpoint("dummy test", "/api/test"),
+            Endpoint("failure", "/api/main/failure")
         ]
-    })()
+    )
 
 @app.route("/api/account", methods=("GET", "POST"))
+@jsonify_if_dataclass
 @require_json_fields(post=["new_password"])
 @require_login
 def api_account():
@@ -198,7 +211,7 @@ def api_account():
     if flask.request.method == "GET":
         return ResponseData(True, None, {
             "username": user.username
-        })()
+        })
 
     if flask.request.method == "POST":
         new_password = flask.g.request_data["new_password"]
@@ -206,13 +219,14 @@ def api_account():
         success, message = auth.change_password(user, new_password)
 
         if not success:
-            return ResponseData(False, message)()
+            return ResponseData(False, message)
         else:
             # TODO: log out all other sessions for current user
-            return ResponseData(True)()
+            return ResponseData(True)
         
 
 @app.route("/api/admin", methods=("GET", "POST"))
+@jsonify_if_dataclass
 @require_json_fields(post=["operation", "target"])
 @require_login
 @require_group("admin")
@@ -227,7 +241,7 @@ def api_admin():
             "users": users,
             "groups": groups,
             "reg_keys": reg_keys
-        })()
+        })
 
     if flask.request.method == "POST":
         operation = flask.g.request_data["operation"]
@@ -235,12 +249,13 @@ def api_admin():
         
         if operation == "delete_user":
             success = auth.remove_user(target)
-            return ResponseData(success)()
+            return ResponseData(success)
         if operation == "delete_reg_key":
             success = auth.remove_reg_key(target)
-            return ResponseData(success)()
+            return ResponseData(success)
 
 @app.route("/api/power", methods=("POST", "GET"))
+@jsonify_if_dataclass
 @require_login
 def power():
     if flask.request.method == "GET":
@@ -255,38 +270,49 @@ def power():
             connectable = True
 
         # return the results
-        return ResponseData(True, None, {
-            "is_main_pingable": pingable,
-            "is_main_connectable": connectable
-        })()
+        return ResponseData(True, None, StatusResponse(
+            pingable or connectable, 
+            {
+                "pingable": pingable,
+                "connectable": connectable
+            }, 
+            None))
     if flask.request.method == "POST":
         # send the WoL packet
         try:
             wakeonlan.send_magic_packet(app.config["MAIN_MAC"])
         except ValueError:
-            return ResponseData(False, "invalid MAC address")()
-        return ResponseData(True)()
+            return ResponseData(False, "invalid MAC address")
+        return ResponseData(True)
 
 
 #TODO: remove 
 @app.route("/api/test", methods=("POST", "GET"))
+@jsonify_if_dataclass
 @require_json_fields(post=["test"])
 def test():
     # this is just a test
     if flask.request.method == "GET":
         return ResponseData(True, "test message", {
-            "this_was_a_get": True
-        })()
+            "this_was_a_get": True,
+            "utc_time": datetime.datetime.utcnow().isoformat()
+        })
     if flask.request.method == "POST":
         return ResponseData(True, "test message", {
             "your_test": flask.g.request_data["test"],
             "foo": "bar"
-        })()
+        })
+
+# catch other /api/ calls
+# @app.route("/api/<path:path>", methods=("POST", "GET"))
+# def api_catchall(path):
+#     return ResponseData(False, "bad api endpoint"), 404
 
 ## forwarded routes to main
 
 # main api endpoints
 @app.route("/api/main/<endpoint>", methods=("GET", "POST"))
+@jsonify_if_dataclass
 @require_login
 def forward_api_to_main(endpoint):
     return forward_to_main("api/{}".format(endpoint))
@@ -331,11 +357,11 @@ def forward_to_main(main_endpoint) -> flask.Response:
         
         return response
     except requests.exceptions.ReadTimeout:
-        return ResponseData(False, "connection to main timed out")()
+        return ResponseData(False, "connection to main timed out")
     except requests.exceptions.ConnectionError:
-        return ResponseData(False, "unable to connect to main")()
+        return ResponseData(False, "unable to connect to main")
     except json.decoder.JSONDecodeError:
-        return ResponseData(False, "invalid JSON response from main")()
+        return ResponseData(False, "invalid JSON response from main")
 
 def current_user() -> auth.User:
     user_id = flask.session.get("user_id")
@@ -350,7 +376,7 @@ def verify_json_field_names(*field_names):
     try:
         data = json.loads(flask.request.data)
     except json.decoder.JSONDecodeError:
-        return ResponseData(False, "invalid JSON")()
+        return ResponseData(False, "invalid JSON")
     
     # verify that the json has the right fields
     for field in field_names:
@@ -359,6 +385,6 @@ def verify_json_field_names(*field_names):
         except KeyError:
             return ResponseData(False, "missing some required fields", {
                 "required_fields": field_names
-            })()
+            })
     
     return None

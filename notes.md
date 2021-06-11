@@ -12,7 +12,8 @@ https://flask-session.readthedocs.io/en/latest/
 add auto-refresh status divs during boot up
 test deployment on real hardware
 add autoshutdown for games and hardware
-rewrite html+js frontend in some more organized framework
+rewrite html+js frontend in some more organized framework:
+    standardize common models for endpoint operations (status, on, off, extras via string probably)
 finish api for registratation, account management, and admin panel
 move session into database?
 add logging

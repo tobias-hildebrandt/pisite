@@ -1,7 +1,7 @@
 import os
 import flask
 
-from pisite_app.common import ResponseData
+from pisite_app.common import ResponseData, jsonify_if_dataclass, StatusResponse, DataLine
 
 import functools
 import subprocess
@@ -41,44 +41,40 @@ def verify_connection():
     # print(flask.request.data)
     # print(flask.request.remote_addr)
     if flask.request.remote_addr != app.config["PI_IP"]:
-        return ResponseData(False, "IP address not accepted")()
+        return ResponseData(False, "IP address not accepted")
     try:
         client_api = flask.request.headers["Api-key"]
         if client_api != app.config["MAIN_API_KEY"]:
-            return ResponseData(False, "invalid API key")()
+            return ResponseData(False, "invalid API key")
     except:
-        return ResponseData(False, "missing API key")()
+        return ResponseData(False, "missing API key")
 
 # link all the routes
 
 ## API routes
 
 @app.route("/api/ack", methods=("GET", ))
+@jsonify_if_dataclass
 def ack():
-    return ResponseData(True, "pong! :)")()
+    return ResponseData(True, "pong! :)")
 
 @app.route("/api/mc", methods=("GET","POST"))
+@jsonify_if_dataclass
 def minecraft():
 
     if flask.request.method == "GET":
         mc_status: MinecraftStatus = MinecraftStatus()
-        return ResponseData(True, None, {
-            "any_true": mc_status.any_true,
-            "tmux_window_running": mc_status.tmux_window_running,
-            "process_running": mc_status.process_running,
-            "mc_status_ping": mc_status.mc_status_ping,
-            "info": mc_status.info
-        })()
+        return mc_status.to_response()
     if flask.request.method == "POST":
         try:
             data = json.loads(flask.request.data)
         except json.decoder.JSONDecodeError:
-            return ResponseData(False, "invalid JSON")()
+            return ResponseData(False, "invalid JSON")
         
         try:
             operation = data["operation"]
         except json.decoder.JSONDecodeError:
-            return ResponseData(False, "must include operation field")()
+            return ResponseData(False, "must include operation field")
     
         result: dict = None
         if operation == "on":
@@ -89,33 +85,34 @@ def minecraft():
                 mc_status: MinecraftStatus = MinecraftStatus()
                 if mc_status.any_true:
                     return_bad_response = True
-                    bad_response = ResponseData(False, "server is already on or starting up")()
+                    bad_response = ResponseData(False, "server is already on or starting up")
                 else:
                     try:
                         result = start_minecraft()
-                        return ResponseData(True)()
+                        return ResponseData(True)
                     except FileNotFoundError as e:
                         return_bad_response = True
-                        bad_response = ResponseData(False, e.args[0])()
+                        bad_response = ResponseData(False, e.args[0])
             finally:
                 lock.release() # release lock
             if return_bad_response:
                 return bad_response
             if result == False:
-                return ResponseData(False, "tmux error")()
+                return ResponseData(False, "tmux error")
         elif operation == "off":
             # turn off minecraft server
             # TODO:
-            return ResponseData(False, "unimplemented")()
+            return ResponseData(False, "unimplemented")
         else:
-            return ResponseData(False, "invalid operation")()
+            return ResponseData(False, "invalid operation")
 
 @app.route("/api/left", methods=("GET", "POST"))
+@jsonify_if_dataclass
 def left():
     if flask.request.method == "GET":
-        return ResponseData(False, "unimplemented")()
+        return ResponseData(False, "unimplemented")
     if flask.request.method == "POST":
-        return ResponseData(False, "unimplemented")()
+        return ResponseData(False, "unimplemented")
 
 ## dynmap
 
@@ -184,6 +181,15 @@ class MinecraftStatus():
         #     self.mc_status_ping,
         #     self.any_true)
         # )
+    
+    def to_response(self):
+        statuses = {
+            "mc_status_ping": self.mc_status_ping,
+            "process_running": self.process_running,
+            "tmux_window_running": self.tmux_window_running
+        }
+
+        return ResponseData(True, None, StatusResponse(any_power=self.any_true, statuses=statuses, info=self.info))
     
         
 # preconditions: 
