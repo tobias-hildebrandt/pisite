@@ -15,3 +15,4 @@ py-pisite/instance/
 *dynmap/
 oldauth/
 rust-pisite/
+*/node_modules/

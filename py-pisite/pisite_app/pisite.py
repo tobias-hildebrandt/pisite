@@ -25,7 +25,7 @@ app = flask.Flask(__name__, instance_relative_config=True)
 # angular requires inline for script and style
 csp = {
     "default-src": "'self'",
-    "script-src": "'self' 'unsafe-inline' 'unsafe-eval'", # maybe not unsafe-eval in production?
+    "script-src": "'self' 'unsafe-inline'", # 'unsafe-eval'",
     "style-src": "'self' 'unsafe-inline'"
 }
 Talisman(app, content_security_policy=csp)
@@ -134,11 +134,21 @@ def before():
 
 @app.route("/", methods=("GET",))
 def index():
-    return flask.send_from_directory(app.config["ANGULAR_BASE_DIR"], "index.html")
+    return flask.send_from_directory(app.config["REACT_BASE_DIR"], "index.html")
 
-@app.route("/<path:path>", methods=("GET",))
-def angular(path):
-    return flask.send_from_directory(app.config["ANGULAR_BASE_DIR"], path)
+@app.route("/<string:subfile>", methods=("GET", ))
+def other_file(subfile):
+    return flask.send_from_directory(app.config["REACT_BASE_DIR"], subfile)
+
+# serve anything inside react's /static/ folders
+@app.route("/static/<string:subdir>/<string:filename>", methods=("GET", ))
+def serve_static(subdir, filename):
+    accepted_subdirs = ["css", "js", "media"]
+    if subdir.lower() in accepted_subdirs:
+        return flask.send_from_directory(os.path.join(app.config["REACT_BASE_DIR"], "static", subdir), filename)
+    else:
+        return flask.abort(404)
+
 
 # @app.errorhandler(404)
 # def page_404(error):
