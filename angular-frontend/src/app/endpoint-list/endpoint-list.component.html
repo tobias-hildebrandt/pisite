@@ -1,0 +1,6 @@
+Endpoints:<br>
+<button (click)="updateEndpoints()">update endpoints</button><br>
+
+<div *ngFor="let endpoint of endpoints">
+    <app-endpoint [endpoint]="endpoint"></app-endpoint><br>
+</div><br>
