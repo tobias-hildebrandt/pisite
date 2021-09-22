@@ -37,7 +37,7 @@ The current technology stack is:
   - Javascript 
   - React
 
-Unorganized design and implementation notes are location in [notes.md](notes.md)
+Unorganized design and implementation notes are location in [notes.txt](notes.txt)
 
 ### Old Design
 
