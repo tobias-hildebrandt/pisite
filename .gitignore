@@ -16,3 +16,9 @@ py-pisite/instance/
 oldauth/
 rust-pisite/
 */node_modules/
+.pylintrc-old
+dummytest.db
+old*.tar.bz2
+react-frontend/dist/
+*/yarn.lock
+openbsd-flask.html
