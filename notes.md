@@ -139,3 +139,41 @@ the indentation is funky, but set text editor to yaml with tab spacing of 2
 
 ~~to disable clock, comment out all of timeofdayclock.js~~
 to disable clock, comment out lines in `$(mc install location)/dynmap/configuration.txt` concerning "clock"
+
+# react
+https://medium.com/@RossWhitehouse/setting-up-eslint-in-react-c20015ef35f7
+https://javascript.plainenglish.io/a-guide-to-creating-a-react-app-without-create-react-app-5337c5ac2ea0
+
+# react frontend design
+
+multiple endpoints inside of a Server
+
+Server
+-hold state of connection to main server
+-pass information to Endpoints, who will toggle themselves off if main server is off
++button to update status
++button to turn on
++display to show status
+
+Endpoint
+-hold state of vital information (received in responses)
+-activate/disactivate the button based on vital information
++collection of GET/POST form / button + response display component, \
+ each one having a certain Action
++single display component to display vital
+
+example:
+
+Minecraft endpoint:
+-vital information:
+--mc server connectable
++collection of buttons + displays:
+++GET to update and display (if connectable) status, current players, MOTD, etc
+++POST to turn on the server (if not connectable), no display, only popup/alert/fadeaway text whenever sent
+
+
+ServerComponent
+EndpointComponent
+VitalInformationComponent
+ActionComponent
+ActionDisplayComponent?

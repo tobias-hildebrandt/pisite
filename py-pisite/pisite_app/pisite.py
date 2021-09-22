@@ -23,7 +23,15 @@ app = flask.Flask(__name__, instance_relative_config=True)
 # https://stackoverflow.com/a/50873957
 # https://github.com/angular/angular-cli/issues/3430
 # angular requires inline for script and style
-csp = {
+csp={}
+if app.debug:
+    csp = {
+        "default-src": "'self'",
+        "script-src": "'self' 'unsafe-inline' 'unsafe-eval'", # unsafe-eval needed for development builds
+        "style-src": "'self' 'unsafe-inline'"
+    }
+else: 
+    csp = {
     "default-src": "'self'",
     "script-src": "'self' 'unsafe-inline'", # 'unsafe-eval'",
     "style-src": "'self' 'unsafe-inline'"
@@ -276,8 +284,11 @@ def power():
         # try to send a request to main
         connectable = False
         response: flask.Response = forward_to_main("/api/ack")
-        if json.loads(response.data)["success"]:
-            connectable = True
+        try:
+            if json.loads(response.data)["success"]:
+                connectable = True
+        except:
+            connectable = False
 
         # return the results
         return ResponseData(True, None, StatusResponse(
