@@ -45,3 +45,6 @@ Unorganized design and implementation notes are location in [notes.txt](notes.tx
 - shells scripts to run tasks on main server
 - scripts would be located in a user's home folder
 - authentication would be done the Linux/UNIX login system
+
+## License
+AGPLv3+
