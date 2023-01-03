@@ -13,7 +13,7 @@ use axum::{
     Json, Router,
 };
 use axum_extra::extract::{
-    cookie::{Cookie, Key, PrivateCookieJar},
+    cookie::{Cookie, Key, PrivateCookieJar, Expiration},
     CookieJar,
 };
 use common::{
@@ -24,8 +24,9 @@ use hyper::{Body, Request};
 use std::net::SocketAddr;
 use tower::Service;
 use tower_http::services::ServeDir;
-use tracing::{error, event, info, trace, warn};
+use tracing::{error, info, warn};
 use utils::{api_route, relative_path, setup_tracing};
+use time::OffsetDateTime;
 
 const API_PREFIX: &str = "/api/";
 const FRONTEND_PATH: &str = "../frontend/dist/";
@@ -58,6 +59,7 @@ async fn api_test2(ConnectInfo(addr): ConnectInfo<SocketAddr>) -> impl IntoRespo
 // TODO: de-duplicate cookie code with a new struct that contains both private and regular jars
 #[axum::debug_handler]
 async fn login(
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
     State(_): State<BackendState>, // for cookie jar key
     private_cookies: PrivateCookieJar,
     regular_cookies: CookieJar,
@@ -72,7 +74,6 @@ async fn login(
             Some(cookie) => {
                 // you sent us a user ID cookie and no body
                 let u = get_user_from_cookie(&cookie);
-                println!("your user ID cookie: {}", cookie);
 
                 match u {
                     Some(auth) => {
@@ -89,6 +90,9 @@ async fn login(
                         // wipe old cookie
                         (private_cookies, regular_cookies) =
                             wipe_cookies(private_cookies, regular_cookies);
+
+                        warn!(target: "login", addr = addr.to_string(), e = "invalid cookie, wiping");
+
                         return (
                             StatusCode::FORBIDDEN,
                             private_cookies,
@@ -100,7 +104,8 @@ async fn login(
             }
             None => {
                 // no cookies and no body??
-                eprintln!("no valid user_id cookie or body?");
+                warn!(target: "login", addr = addr.to_string(), e = "no valid user_id cookie or body, wiping");
+
                 // delete any id cookie you have
                 (private_cookies, regular_cookies) = wipe_cookies(private_cookies, regular_cookies);
                 return (
@@ -117,6 +122,8 @@ async fn login(
     let login_result = LoginResponse::Success(LoginSuccess { id: user.id });
     (private_cookies, regular_cookies) = user.cookies(private_cookies, regular_cookies);
 
+    info!(target: "login", addr = addr.to_string(), user.id = user.id);
+
     return (
         StatusCode::OK,
         private_cookies,
@@ -126,13 +133,24 @@ async fn login(
 }
 
 // TODO: use DB to check
-fn get_user_from_cookie(cookie: &Cookie) -> Option<Authenticated> {
+fn get_user_from_cookie(_cookie: &Cookie) -> Option<Authenticated> {
     return Some(Authenticated { id: 1 });
 }
 
 fn wipe_cookies(private: PrivateCookieJar, regular: CookieJar) -> (PrivateCookieJar, CookieJar) {
+    // remove old cookies
     let private = private.remove(Cookie::named(USER_ID_COOKIE));
     let regular = regular.remove(Cookie::named(USERNAME_ID_COOKIE));
+
+    // add regular blank cookies that have already expired
+    let mut user_id = Cookie::new(USER_ID_COOKIE, "");
+    user_id.set_expires(Expiration::from(OffsetDateTime::UNIX_EPOCH));
+
+    let mut username = Cookie::new(USERNAME_ID_COOKIE, "");
+    username.set_expires(Expiration::from(OffsetDateTime::UNIX_EPOCH));
+
+    let regular = regular.add(user_id);
+    let regular = regular.add(username);
 
     return (private, regular);
 }
@@ -140,10 +158,25 @@ fn wipe_cookies(private: PrivateCookieJar, regular: CookieJar) -> (PrivateCookie
 #[axum::debug_handler]
 // TODO: access database
 async fn logout(
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
     State(_): State<BackendState>, // for cookie jar key
     private_cookies: PrivateCookieJar,
     regular_cookies: CookieJar,
 ) -> impl IntoResponse {
+    match private_cookies.get(USER_ID_COOKIE) {
+        Some(c) => match get_user_from_cookie(&c) {
+            Some(user) => {
+                info!(target: "logout", addr = addr.to_string(), user.id = user.id);
+            }
+            None => {
+                warn!(target: "logout", addr = addr.to_string(), e = "had invalid id cookie");
+            }
+        },
+        None => {
+            warn!(target: "logout", addr = addr.to_string(), e = "had no private user id cookie");
+        }
+    }
+
     // for now, just tell client to wipe all cookies
     let (private_cookies, regular_cookies) = wipe_cookies(private_cookies, regular_cookies);
     return (StatusCode::OK, private_cookies, regular_cookies);
