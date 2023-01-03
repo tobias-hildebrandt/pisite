@@ -1,0 +1,19 @@
+[package]
+name = "rpisite"
+version = "0.0.1"
+edition = "2021"
+
+[dependencies]
+rocket = { version = "0.5.0-rc.2", features = ["json", "secrets"] }
+common = { path = "../common/" }
+rand =  "0.8.3"
+serde = "1.0.145"
+serde_json = "1.0.85"
+
+[[bin]]
+name = "relay_server"
+path = "src/relay_server.rs"
+
+[[bin]]
+name = "main_server"
+path = "src/main_server.rs"
