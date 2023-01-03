@@ -217,6 +217,7 @@ async fn try_login(req: LoginRequest) -> Result<LoginResponse, gloo_net::Error> 
     let response = Request::new("/api/login")
         .method(Method::POST)
         .body(serde_json::to_string(&req).unwrap())
+        .header("Content-Type", "application/json;charset=UTF-8")
         .send()
         .await?;
 
