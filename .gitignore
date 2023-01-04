@@ -1,3 +1,6 @@
 target
 frontend/dist
 .vscode
+
+# do not keep databases
+**/*.sqlite3*

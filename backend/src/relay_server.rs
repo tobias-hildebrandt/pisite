@@ -1,6 +1,7 @@
 #[macro_use]
 mod utils;
 mod auth;
+mod db;
 
 use std::sync::Arc;
 
@@ -185,6 +186,8 @@ async fn logout(
 #[tokio::main]
 async fn main() {
     setup_tracing();
+
+    db::print_all().expect("unable to setup DB");
 
     let frontend_state = Arc::new(FrontendState {
         serve_dir: tokio::sync::Mutex::new(ServeDir::new(relative_path(FRONTEND_PATH))),
