@@ -9,12 +9,12 @@ use auth::Authenticated;
 use axum::{
     extract::{ConnectInfo, FromRef, Path, State},
     http::StatusCode,
-    response::IntoResponse,
+    response::{ErrorResponse, IntoResponse},
     routing::{get, post},
     Json, Router,
 };
 use axum_extra::extract::{
-    cookie::{Cookie, Key, PrivateCookieJar, Expiration},
+    cookie::{Cookie, Expiration, Key, PrivateCookieJar},
     CookieJar,
 };
 use common::{
@@ -23,11 +23,11 @@ use common::{
 };
 use hyper::{Body, Request};
 use std::net::SocketAddr;
+use time::OffsetDateTime;
 use tower::Service;
 use tower_http::services::ServeDir;
-use tracing::{error, info, warn};
+use tracing::{error, info, instrument, warn};
 use utils::{api_route, relative_path, setup_tracing};
-use time::OffsetDateTime;
 
 const API_PREFIX: &str = "/api/";
 const FRONTEND_PATH: &str = "../frontend/dist/";
@@ -40,25 +40,59 @@ zqfeRqM/cFbbo/1HEPDQfOPMuciItwXUyQB11/djx30SciCibwUJo2fBtrx/O2iESMxqfMbLTQel
 auA4/WB6MyUilBH8q/LhFIw0YStTXBc/1/RJu/1tgPYK64WM5X812TXcvcaJBbATtQHGpQ+B4IEu
 oqCK+Ec/XpWnObj8vA+oq56w+WfRzDnaPF09/oRxYKfB6CCYfo";
 
+#[axum::debug_handler]
+#[instrument]
 async fn api_test1(ConnectInfo(addr): ConnectInfo<SocketAddr>) -> impl IntoResponse {
     let time = std::time::SystemTime::now()
         .duration_since(std::time::SystemTime::UNIX_EPOCH)
         .unwrap()
         .as_secs();
-    info!(target: "api_test1", addr = addr.to_string(), time);
+    info!(addr = addr.to_string(), time);
     return Json(Test1 { number: time });
 }
 
+#[axum::debug_handler]
+#[instrument]
 async fn api_test2(ConnectInfo(addr): ConnectInfo<SocketAddr>) -> impl IntoResponse {
     let random = rand::random::<u64>();
 
-    info!(target: "api_test2", addr = addr.to_string(), random);
+    info!(addr = addr.to_string(), random);
 
     return Json(Test1 { number: random });
 }
 
+#[axum::debug_handler]
+#[instrument(skip(connection_pool))]
+async fn api_test3(
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
+    State(BackendState {
+        key: _,
+        connection_pool,
+    }): State<BackendState>,
+) -> Result<impl IntoResponse, ErrorResponse> {
+    let mut connection = connection_pool.get()?;
+
+    let users = db::get_all_users(&mut connection)?;
+
+    let all_users_string = users
+        .into_iter()
+        .map(|u| format!("user({}, {})", u.id, u.username))
+        .fold(String::new(), |mut accum, new| {
+            accum.push_str(&new);
+            accum.push_str(", ");
+            accum
+        });
+
+
+    info!("success");
+
+    let response = (StatusCode::OK, all_users_string).into_response();
+    Ok(response)
+}
+
 // TODO: de-duplicate cookie code with a new struct that contains both private and regular jars
 #[axum::debug_handler]
+#[instrument]
 async fn login(
     ConnectInfo(addr): ConnectInfo<SocketAddr>,
     State(_): State<BackendState>, // for cookie jar key
@@ -92,7 +126,7 @@ async fn login(
                         (private_cookies, regular_cookies) =
                             wipe_cookies(private_cookies, regular_cookies);
 
-                        warn!(target: "login", addr = addr.to_string(), e = "invalid cookie, wiping");
+                        warn!(addr = addr.to_string(), e = "invalid cookie, wiping");
 
                         return (
                             StatusCode::FORBIDDEN,
@@ -105,7 +139,7 @@ async fn login(
             }
             None => {
                 // no cookies and no body??
-                warn!(target: "login", addr = addr.to_string(), e = "no valid user_id cookie or body, wiping");
+                warn!(addr = addr.to_string(), e = "no valid user_id cookie or body, wiping");
 
                 // delete any id cookie you have
                 (private_cookies, regular_cookies) = wipe_cookies(private_cookies, regular_cookies);
@@ -123,7 +157,7 @@ async fn login(
     let login_result = LoginResponse::Success(LoginSuccess { id: user.id });
     (private_cookies, regular_cookies) = user.cookies(private_cookies, regular_cookies);
 
-    info!(target: "login", addr = addr.to_string(), user.id = user.id);
+    info!(addr = addr.to_string(), user.id = user.id);
 
     return (
         StatusCode::OK,
@@ -157,6 +191,7 @@ fn wipe_cookies(private: PrivateCookieJar, regular: CookieJar) -> (PrivateCookie
 }
 
 #[axum::debug_handler]
+#[instrument]
 // TODO: access database
 async fn logout(
     ConnectInfo(addr): ConnectInfo<SocketAddr>,
@@ -167,14 +202,14 @@ async fn logout(
     match private_cookies.get(USER_ID_COOKIE) {
         Some(c) => match get_user_from_cookie(&c) {
             Some(user) => {
-                info!(target: "logout", addr = addr.to_string(), user.id = user.id);
+                info!(addr = addr.to_string(), user.id = user.id);
             }
             None => {
-                warn!(target: "logout", addr = addr.to_string(), e = "had invalid id cookie");
+                warn!(addr = addr.to_string(), e = "had invalid id cookie");
             }
         },
         None => {
-            warn!(target: "logout", addr = addr.to_string(), e = "had no private user id cookie");
+            warn!(addr = addr.to_string(), e = "had no private user id cookie");
         }
     }
 
@@ -183,11 +218,18 @@ async fn logout(
     return (StatusCode::OK, private_cookies, regular_cookies);
 }
 
-#[tokio::main]
-async fn main() {
-    setup_tracing();
+#[derive(thiserror::Error, Debug)]
+enum RunError {
+    #[error("DBError {0:?}")]
+    DBError(db::DBError),
+    #[error("ServeError {0:?}")]
+    ServeError(hyper::Error),
+}
 
-    db::print_all().expect("unable to setup DB");
+#[tokio::main]
+#[instrument]
+async fn main() -> Result<(), RunError> {
+    setup_tracing();
 
     let frontend_state = Arc::new(FrontendState {
         serve_dir: tokio::sync::Mutex::new(ServeDir::new(relative_path(FRONTEND_PATH))),
@@ -196,6 +238,7 @@ async fn main() {
     let backend_state = BackendState {
         // TODO: load key from file/environmental variable
         key: Key::from(DEV_RANDOM_STR.as_bytes()),
+        connection_pool: db::init_and_get_connection_pool().map_err(RunError::DBError)?,
     };
 
     let app = Router::new();
@@ -212,18 +255,24 @@ async fn main() {
         .route(&api_route(API_PREFIX, "test2"), get(api_test2))
         .route(&api_route(API_PREFIX, "login"), post(login))
         .route(&api_route(API_PREFIX, "logout"), post(logout))
+        .route(&api_route(API_PREFIX, "test3"), get(api_test3))
         .with_state(backend_state);
 
     axum::Server::bind(&"0.0.0.0:8000".parse().expect("unable to bind"))
         .serve(app.into_make_service_with_connect_info::<SocketAddr>())
         .await
-        .expect("unable to serve");
+        .map_err(RunError::ServeError)?;
+
+    Ok(())
 }
 
 #[derive(Clone)]
 struct BackendState {
     // private cookie key
     key: Key,
+    // arc mutex for the database connection
+    // (sqlite does not support multiple writers)
+    connection_pool: db::ConnPool,
 }
 
 // so our signed cookie jar can get the key from the backend state
@@ -240,6 +289,7 @@ struct FrontendState {
 // TODO: improve performance by allowing simulatenous reads
 // TODO: sanitize input to avoid ../ or similar
 // maybe switch to oneshot or cache files at launch?
+#[instrument(skip(frontend_state))]
 async fn frontend_handler(
     path: Option<Path<String>>, // option since we need to handle the root path
     State(frontend_state): State<Arc<FrontendState>>,
@@ -257,14 +307,12 @@ async fn frontend_handler(
         None => "/index.html".to_string(),
     };
 
-    // info!(target: "frontend_handler", addr = addr.to_string(), real_path);
-
     // create request to pass to tower_http's ServeDir
     let req = Request::builder()
         .uri(real_path.clone())
         .body(Body::empty())
         .map_err(|e| {
-            error!(target: "frontend_handler", addr = addr.to_string(), real_path, "Request::builder error: {}", e);
+            error!(addr = addr.to_string(), real_path, "Request::builder error: {}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
@@ -274,15 +322,15 @@ async fn frontend_handler(
         Ok(res) => {
             // TODO: figure out dynamic level for trace!, could be done via macro
             if res.status().is_success() {
-                info!(target: "frontend_handler", addr = addr.to_string(), real_path, status = res.status().as_str());
+                info!(addr = addr.to_string(), real_path, status = res.status().as_str());
             } else {
-                warn!(target: "frontend_handler", addr = addr.to_string(), real_path, status = res.status().as_str());
+                warn!(addr = addr.to_string(), real_path, status = res.status().as_str());
             };
 
             return Ok(res);
         }
         Err(e) => {
-            error!(target: "frontend_handler", addr = addr.to_string(), real_path, "ServeDir error: {}", e);
+            error!(addr = addr.to_string(), real_path, "ServeDir error: {}", e);
             return Err(StatusCode::NOT_FOUND);
         }
     }

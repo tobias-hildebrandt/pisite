@@ -1,54 +1,55 @@
+use axum::response::IntoResponse;
+use diesel::connection::SimpleConnection;
 use diesel::dsl::sql;
 use diesel::prelude::*;
+use diesel::r2d2::{ConnectionManager, Pool};
 use diesel::{Connection, ConnectionResult, SqliteConnection};
 use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
+use hyper::StatusCode;
+use r2d2::{self, PooledConnection};
 use rand::Rng;
+use tracing::{error, info, instrument};
 
 use super::schema;
 
-const DB_NAME: &str = "relay.sqlite3";
+const DATABASE_LOCATION: &str = "relay.sqlite3";
 
 const MIGRATIONS: EmbeddedMigrations = embed_migrations!("sql");
 
+// error type returned for all DB operations
 #[derive(thiserror::Error, Debug)]
 pub enum DBError {
-    #[error("DBError::ConnectionError({0:?})")]
-    ConnectionError(ConnectionError),
-    #[error("DBError::MigrationError({0:?})")]
-    MigrationError(Box<dyn std::error::Error + Send + Sync>),
-    #[error("DBError::QueryError({0:?})")]
-    QueryError(diesel::result::Error),
+    #[error("DB Connection Error {0:?}")]
+    Connection(#[from] ConnectionError),
+    #[error("DB Migration Error {0:?}")]
+    Migration(#[from] Box<dyn std::error::Error + Send + Sync>),
+    #[error("DB Query Error {0:?}")]
+    Query(#[from] diesel::result::Error),
+    #[error("DB Pool Error {0:?}")]
+    Pool(#[from] r2d2::Error),
 }
 
-impl From<ConnectionError> for DBError {
-    fn from(e: ConnectionError) -> Self {
-        DBError::ConnectionError(e)
+impl IntoResponse for DBError {
+    fn into_response(self) -> axum::response::Response {
+        error!(target: "DBError", "{}", self);
+        (StatusCode::INTERNAL_SERVER_ERROR, "").into_response()
     }
-}
-
-impl From<diesel::result::Error> for DBError {
-    fn from(e: diesel::result::Error) -> Self {
-        DBError::QueryError(e)
-    }
-}
-
-pub fn connect() -> ConnectionResult<SqliteConnection> {
-    SqliteConnection::establish(DB_NAME)
 }
 
 #[derive(Queryable, Debug)]
 pub struct ExistingUser {
-    id: i32,
-    username: String,
+    pub id: i32,
+    pub username: String,
 }
 
 #[derive(Insertable, Debug)]
 #[diesel(table_name = schema::users)]
 pub struct NewUser {
-    username: String,
+    pub username: String,
 }
 
-pub fn create_dummy_user(connection: &mut SqliteConnection, username: &str) -> Result<(), DBError> {
+#[instrument(skip(connection))]
+fn create_dummy_user(connection: &mut SqliteConnection, username: &str) -> Result<(), DBError> {
     let new_user = NewUser {
         username: username.to_string(),
     };
@@ -59,25 +60,36 @@ pub fn create_dummy_user(connection: &mut SqliteConnection, username: &str) -> R
         .find(sql("last_insert_rowid()"))
         .get_result(connection)?;
 
-    println!("created user: {:?}", resulting_user);
+    info!("created user: {:?}", resulting_user);
 
     Ok(())
 }
 
-pub fn print_all() -> Result<(), DBError> {
-    let connection = &mut connect()?;
+pub fn get_all_users(connection: &mut SqliteConnection) -> Result<Vec<ExistingUser>, DBError> {
+    Ok(schema::users::dsl::users.load::<ExistingUser>(connection)?)
+}
+
+// private function, only used when initializing DB
+fn direct_connection() -> ConnectionResult<SqliteConnection> {
+    SqliteConnection::establish(DATABASE_LOCATION)
+}
+
+#[instrument]
+fn init() -> Result<(), DBError> {
+    // get initial connection
+    let connection = &mut direct_connection()?;
 
     // run migrations if needed
     let _migrations_run: Vec<_> = connection
         .run_pending_migrations(MIGRATIONS)
-        .map_err(|e| DBError::MigrationError(e))?;
+        .map_err(DBError::Migration)?;
 
     // create some dummy users
     for _ in 0..10 {
         let num = rand::thread_rng().gen_range(0u16..100);
-        let username = format!("testuser{}", num);
+        let username = format!("testuser{:02}", num);
         if let Err(e) = create_dummy_user(connection, &username) {
-            println!("error adding user with username '{username}': {e}");
+            error!("error adding user with username '{username}': {e}");
         }
     }
 
@@ -85,7 +97,57 @@ pub fn print_all() -> Result<(), DBError> {
     let users = schema::users::dsl::users.load::<ExistingUser>(connection)?;
 
     // print how many
-    println!("got all {} users from DB", users.len());
+    info!("got all {} users from DB", users.len());
 
     Ok(())
+}
+
+// wrapper struct for connection pool
+#[derive(Clone)]
+pub struct ConnPool {
+    // private member, use get() to get a connection
+    pool: Pool<ConnectionManager<SqliteConnection>>,
+}
+
+impl ConnPool {
+    pub fn get(&self) -> Result<PooledConnection<ConnectionManager<SqliteConnection>>, DBError> {
+        // TODO: figure out of PooledConnection is OK
+        let conn = self.pool.get()?;
+
+        Ok(conn)
+    }
+}
+
+// https://stackoverflow.com/a/57717533
+pub fn init_and_get_connection_pool() -> Result<ConnPool, DBError> {
+    init()?;
+
+    let pool = Pool::builder()
+        .connection_customizer(Box::new(ConnOptions))
+        .build(ConnectionManager::<SqliteConnection>::new(
+            DATABASE_LOCATION,
+        ))?;
+
+    Ok(ConnPool { pool })
+}
+
+#[derive(Debug)]
+struct ConnOptions;
+
+impl diesel::r2d2::CustomizeConnection<SqliteConnection, diesel::r2d2::Error> for ConnOptions {
+    fn on_acquire(&self, conn: &mut SqliteConnection) -> Result<(), diesel::r2d2::Error> {
+        // set up WAL
+        conn.batch_execute("PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL;")
+            .map_err(diesel::r2d2::Error::QueryError)?;
+
+        // set up busy timeout
+        const TIMEOUT_SECONDS: f32 = 1.0;
+        conn.batch_execute(&format!(
+            "PRAGMA busy_timeout = {};",
+            std::time::Duration::from_secs_f32(TIMEOUT_SECONDS).as_millis()
+        ))
+        .map_err(diesel::r2d2::Error::QueryError)?;
+
+        Ok(())
+    }
 }
