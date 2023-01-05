@@ -1,7 +1,6 @@
-#[macro_use]
-mod utils;
 mod auth;
 mod db;
+mod utils;
 
 use std::sync::Arc;
 
@@ -21,11 +20,11 @@ use common::{
     LoginError, LoginRequest, LoginResponse, LoginSuccess, Test1, USERNAME_ID_COOKIE,
     USER_ID_COOKIE,
 };
-use hyper::{Body, Request};
+use hyper::{Body, Method, Request};
 use std::net::SocketAddr;
 use time::OffsetDateTime;
 use tower::Service;
-use tower_http::services::ServeDir;
+use tower_http::{services::ServeDir, trace::TraceLayer};
 use tracing::{error, info, instrument, warn};
 use utils::{api_route, relative_path, setup_tracing};
 
@@ -261,8 +260,8 @@ async fn main() -> Result<(), RunError> {
         .route(&api_route(API_PREFIX, "test3"), get(api_test3))
         .with_state(backend_state);
 
-    // TODO: add tracing for entire app
-    // app.layer( TraceLayer??? )
+    // add http tracing
+    let app = add_trace_layer(app);
 
     axum::Server::bind(&"0.0.0.0:8000".parse().expect("unable to bind"))
         .serve(app.into_make_service_with_connect_info::<SocketAddr>())
@@ -270,6 +269,51 @@ async fn main() -> Result<(), RunError> {
         .map_err(RunError::ServeError)?;
 
     Ok(())
+}
+
+fn add_trace_layer(app: Router) -> Router {
+    let trace_layer = TraceLayer::new_for_http()
+        .make_span_with(|request: &hyper::Request<hyper::Body>| {
+            // could use headers, but not body since the body could be async (like a stream)
+            tracing::span!(tracing::Level::INFO, "http-request")
+        })
+        // .on_response(|response: &hyper::Response<http_body::combinators::UnsyncBoxBody<axum::body::Bytes, axum::Error>>, latency: std::time::Duration, _span: &tracing::Span| {
+        //     tracing::debug!("response generated in {:?}", latency)
+        // })
+        // .on_request(
+        //     |request: &hyper::Request<hyper::Body>, _span: &tracing::Span| {
+        //         tracing::info!("on request {} {}", request.method(), request.uri().path())
+        //     },
+        // )
+        // .on_body_chunk(
+        //     |chunk: &hyper::body::Bytes, latency: std::time::Duration, _span: &tracing::Span| {
+        //         tracing::trace!(
+        //             "sending {} bytes, took {:.2} seconds",
+        //             chunk.len(),
+        //             latency.as_secs_f64()
+        //         )
+        //     },
+        // )
+        .on_eos(
+            |_trailers: Option<&hyper::HeaderMap>,
+             stream_duration: tokio::time::Duration,
+             _span: &tracing::Span| {
+                tracing::error!("stream end after {:?}", stream_duration)
+            },
+        )
+        .on_failure(
+            |error: tower_http::classify::ServerErrorsFailureClass,
+             latency: tokio::time::Duration,
+             _span: &tracing::Span| {
+                tracing::error!(
+                    "after {:.2} seconds, something went wrong: {:?}",
+                    latency.as_secs_f64(),
+                    error
+                )
+            },
+        );
+
+    return app.layer(trace_layer);
 }
 
 #[derive(Clone)]
@@ -298,6 +342,7 @@ struct FrontendState {
 #[instrument(fields(real_path), skip(frontend_state))]
 async fn frontend_handler(
     path: Option<Path<String>>, // option since we need to handle the root path
+    method: Method,
     State(frontend_state): State<Arc<FrontendState>>,
     ConnectInfo(addr): ConnectInfo<SocketAddr>,
 ) -> impl IntoResponse {
