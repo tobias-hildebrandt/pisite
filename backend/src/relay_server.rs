@@ -47,7 +47,7 @@ async fn api_test1(ConnectInfo(addr): ConnectInfo<SocketAddr>) -> impl IntoRespo
         .duration_since(std::time::SystemTime::UNIX_EPOCH)
         .unwrap()
         .as_secs();
-    info!(addr = addr.to_string(), time);
+    info!(time);
     return Json(Test1 { number: time });
 }
 
@@ -56,7 +56,7 @@ async fn api_test1(ConnectInfo(addr): ConnectInfo<SocketAddr>) -> impl IntoRespo
 async fn api_test2(ConnectInfo(addr): ConnectInfo<SocketAddr>) -> impl IntoResponse {
     let random = rand::random::<u64>();
 
-    info!(addr = addr.to_string(), random);
+    info!(random);
 
     return Json(Test1 { number: random });
 }
@@ -83,7 +83,6 @@ async fn api_test3(
             accum
         });
 
-
     info!("success");
 
     let response = (StatusCode::OK, all_users_string).into_response();
@@ -91,8 +90,9 @@ async fn api_test3(
 }
 
 // TODO: de-duplicate cookie code with a new struct that contains both private and regular jars
+// TODO: format and log relevant cookies
 #[axum::debug_handler]
-#[instrument]
+#[instrument(skip(private_cookies, regular_cookies))]
 async fn login(
     ConnectInfo(addr): ConnectInfo<SocketAddr>,
     State(_): State<BackendState>, // for cookie jar key
@@ -126,7 +126,7 @@ async fn login(
                         (private_cookies, regular_cookies) =
                             wipe_cookies(private_cookies, regular_cookies);
 
-                        warn!(addr = addr.to_string(), e = "invalid cookie, wiping");
+                        warn!(e = "invalid cookie, wiping");
 
                         return (
                             StatusCode::FORBIDDEN,
@@ -139,7 +139,7 @@ async fn login(
             }
             None => {
                 // no cookies and no body??
-                warn!(addr = addr.to_string(), e = "no valid user_id cookie or body, wiping");
+                warn!(e = "no valid user_id cookie or body, wiping");
 
                 // delete any id cookie you have
                 (private_cookies, regular_cookies) = wipe_cookies(private_cookies, regular_cookies);
@@ -153,11 +153,13 @@ async fn login(
         }
     }
     // TODO: get from DB using login_req
-    let user = Authenticated { id: 1 };
-    let login_result = LoginResponse::Success(LoginSuccess { id: user.id });
-    (private_cookies, regular_cookies) = user.cookies(private_cookies, regular_cookies);
+    let authenticated = Authenticated { id: 1 };
+    let login_result = LoginResponse::Success(LoginSuccess {
+        id: authenticated.id,
+    });
+    (private_cookies, regular_cookies) = authenticated.cookies(private_cookies, regular_cookies);
 
-    info!(addr = addr.to_string(), user.id = user.id);
+    info!(authenticated.id = authenticated.id);
 
     return (
         StatusCode::OK,
@@ -190,9 +192,10 @@ fn wipe_cookies(private: PrivateCookieJar, regular: CookieJar) -> (PrivateCookie
     return (private, regular);
 }
 
-#[axum::debug_handler]
-#[instrument]
 // TODO: access database
+// TODO: format and log relevant cookies
+#[axum::debug_handler]
+#[instrument(skip(private_cookies, regular_cookies))]
 async fn logout(
     ConnectInfo(addr): ConnectInfo<SocketAddr>,
     State(_): State<BackendState>, // for cookie jar key
@@ -202,14 +205,14 @@ async fn logout(
     match private_cookies.get(USER_ID_COOKIE) {
         Some(c) => match get_user_from_cookie(&c) {
             Some(user) => {
-                info!(addr = addr.to_string(), user.id = user.id);
+                info!(user.id = user.id);
             }
             None => {
-                warn!(addr = addr.to_string(), e = "had invalid id cookie");
+                warn!(e = "had invalid id cookie");
             }
         },
         None => {
-            warn!(addr = addr.to_string(), e = "had no private user id cookie");
+            warn!(e = "had no private user id cookie");
         }
     }
 
@@ -258,6 +261,9 @@ async fn main() -> Result<(), RunError> {
         .route(&api_route(API_PREFIX, "test3"), get(api_test3))
         .with_state(backend_state);
 
+    // TODO: add tracing for entire app
+    // app.layer( TraceLayer??? )
+
     axum::Server::bind(&"0.0.0.0:8000".parse().expect("unable to bind"))
         .serve(app.into_make_service_with_connect_info::<SocketAddr>())
         .await
@@ -289,7 +295,7 @@ struct FrontendState {
 // TODO: improve performance by allowing simulatenous reads
 // TODO: sanitize input to avoid ../ or similar
 // maybe switch to oneshot or cache files at launch?
-#[instrument(skip(frontend_state))]
+#[instrument(fields(real_path), skip(frontend_state))]
 async fn frontend_handler(
     path: Option<Path<String>>, // option since we need to handle the root path
     State(frontend_state): State<Arc<FrontendState>>,
@@ -312,7 +318,7 @@ async fn frontend_handler(
         .uri(real_path.clone())
         .body(Body::empty())
         .map_err(|e| {
-            error!(addr = addr.to_string(), real_path, "Request::builder error: {}", e);
+            error!("Request::builder error: {}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
@@ -322,15 +328,15 @@ async fn frontend_handler(
         Ok(res) => {
             // TODO: figure out dynamic level for trace!, could be done via macro
             if res.status().is_success() {
-                info!(addr = addr.to_string(), real_path, status = res.status().as_str());
+                info!(status = res.status().as_str());
             } else {
-                warn!(addr = addr.to_string(), real_path, status = res.status().as_str());
+                warn!(status = res.status().as_str());
             };
 
             return Ok(res);
         }
         Err(e) => {
-            error!(addr = addr.to_string(), real_path, "ServeDir error: {}", e);
+            error!("ServeDir error: {}", e);
             return Err(StatusCode::NOT_FOUND);
         }
     }
