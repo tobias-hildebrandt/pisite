@@ -24,8 +24,8 @@ use hyper::{Body, Method, Request};
 use std::net::SocketAddr;
 use time::OffsetDateTime;
 use tower::Service;
-use tower_http::{services::ServeDir, trace::TraceLayer};
-use tracing::{error, info, instrument, warn};
+use tower_http::services::ServeDir;
+use tracing::{error, info, instrument, warn, Instrument};
 use utils::{api_route, relative_path, setup_tracing};
 
 const API_PREFIX: &str = "/api/";
@@ -41,7 +41,7 @@ oqCK+Ec/XpWnObj8vA+oq56w+WfRzDnaPF09/oRxYKfB6CCYfo";
 
 #[axum::debug_handler]
 #[instrument]
-async fn api_test1(ConnectInfo(addr): ConnectInfo<SocketAddr>) -> impl IntoResponse {
+async fn api_test1() -> impl IntoResponse {
     let time = std::time::SystemTime::now()
         .duration_since(std::time::SystemTime::UNIX_EPOCH)
         .unwrap()
@@ -52,7 +52,7 @@ async fn api_test1(ConnectInfo(addr): ConnectInfo<SocketAddr>) -> impl IntoRespo
 
 #[axum::debug_handler]
 #[instrument]
-async fn api_test2(ConnectInfo(addr): ConnectInfo<SocketAddr>) -> impl IntoResponse {
+async fn api_test2() -> impl IntoResponse {
     let random = rand::random::<u64>();
 
     info!(random);
@@ -63,7 +63,6 @@ async fn api_test2(ConnectInfo(addr): ConnectInfo<SocketAddr>) -> impl IntoRespo
 #[axum::debug_handler]
 #[instrument(skip(connection_pool))]
 async fn api_test3(
-    ConnectInfo(addr): ConnectInfo<SocketAddr>,
     State(BackendState {
         key: _,
         connection_pool,
@@ -93,7 +92,6 @@ async fn api_test3(
 #[axum::debug_handler]
 #[instrument(skip(private_cookies, regular_cookies))]
 async fn login(
-    ConnectInfo(addr): ConnectInfo<SocketAddr>,
     State(_): State<BackendState>, // for cookie jar key
     private_cookies: PrivateCookieJar,
     regular_cookies: CookieJar,
@@ -196,7 +194,6 @@ fn wipe_cookies(private: PrivateCookieJar, regular: CookieJar) -> (PrivateCookie
 #[axum::debug_handler]
 #[instrument(skip(private_cookies, regular_cookies))]
 async fn logout(
-    ConnectInfo(addr): ConnectInfo<SocketAddr>,
     State(_): State<BackendState>, // for cookie jar key
     private_cookies: PrivateCookieJar,
     regular_cookies: CookieJar,
@@ -260,8 +257,8 @@ async fn main() -> Result<(), RunError> {
         .route(&api_route(API_PREFIX, "test3"), get(api_test3))
         .with_state(backend_state);
 
-    // add http tracing
-    let app = add_trace_layer(app);
+    // add request tracing
+    let app = app.layer(axum::middleware::from_fn(add_trace_layer));
 
     axum::Server::bind(&"0.0.0.0:8000".parse().expect("unable to bind"))
         .serve(app.into_make_service_with_connect_info::<SocketAddr>())
@@ -271,49 +268,34 @@ async fn main() -> Result<(), RunError> {
     Ok(())
 }
 
-fn add_trace_layer(app: Router) -> Router {
-    let trace_layer = TraceLayer::new_for_http()
-        .make_span_with(|request: &hyper::Request<hyper::Body>| {
-            // could use headers, but not body since the body could be async (like a stream)
-            tracing::span!(tracing::Level::INFO, "http-request")
-        })
-        // .on_response(|response: &hyper::Response<http_body::combinators::UnsyncBoxBody<axum::body::Bytes, axum::Error>>, latency: std::time::Duration, _span: &tracing::Span| {
-        //     tracing::debug!("response generated in {:?}", latency)
-        // })
-        // .on_request(
-        //     |request: &hyper::Request<hyper::Body>, _span: &tracing::Span| {
-        //         tracing::info!("on request {} {}", request.method(), request.uri().path())
-        //     },
-        // )
-        // .on_body_chunk(
-        //     |chunk: &hyper::body::Bytes, latency: std::time::Duration, _span: &tracing::Span| {
-        //         tracing::trace!(
-        //             "sending {} bytes, took {:.2} seconds",
-        //             chunk.len(),
-        //             latency.as_secs_f64()
-        //         )
-        //     },
-        // )
-        .on_eos(
-            |_trailers: Option<&hyper::HeaderMap>,
-             stream_duration: tokio::time::Duration,
-             _span: &tracing::Span| {
-                tracing::error!("stream end after {:?}", stream_duration)
-            },
-        )
-        .on_failure(
-            |error: tower_http::classify::ServerErrorsFailureClass,
-             latency: tokio::time::Duration,
-             _span: &tracing::Span| {
-                tracing::error!(
-                    "after {:.2} seconds, something went wrong: {:?}",
-                    latency.as_secs_f64(),
-                    error
-                )
-            },
-        );
+async fn add_trace_layer<B>(
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
+    request: hyper::Request<B>,
+    next: axum::middleware::Next<B>,
+) -> impl IntoResponse {
+    // extract information
+    let method = request.method().as_str();
+    let path = request.uri().path();
+    let headers = request.headers();
+    let user_id = headers
+        .get(USER_ID_COOKIE)
+        .map(|h| h.to_str().unwrap_or("non-ascii"))
+        .unwrap_or("none");
 
-    return app.layer(trace_layer);
+    // put it in a span
+    let span = tracing::span!(
+        tracing::Level::INFO,
+        "http",
+        a = addr.to_string(),
+        m = method,
+        p = path,
+        u = user_id
+    );
+
+    // run the next middleware with the span
+    let after_next = next.run(request).instrument(span).await;
+
+    return after_next;
 }
 
 #[derive(Clone)]
@@ -339,12 +321,10 @@ struct FrontendState {
 // TODO: improve performance by allowing simulatenous reads
 // TODO: sanitize input to avoid ../ or similar
 // maybe switch to oneshot or cache files at launch?
-#[instrument(fields(real_path), skip(frontend_state))]
+#[instrument(skip_all)]
 async fn frontend_handler(
     path: Option<Path<String>>, // option since we need to handle the root path
-    method: Method,
     State(frontend_state): State<Arc<FrontendState>>,
-    ConnectInfo(addr): ConnectInfo<SocketAddr>,
 ) -> impl IntoResponse {
     // handle serving from /
     let real_path = match path {
@@ -360,7 +340,7 @@ async fn frontend_handler(
 
     // create request to pass to tower_http's ServeDir
     let req = Request::builder()
-        .uri(real_path.clone())
+        .uri(real_path)
         .body(Body::empty())
         .map_err(|e| {
             error!("Request::builder error: {}", e);
