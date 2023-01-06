@@ -1,5 +1,8 @@
 use colored::Colorize;
+use tracing::field::Visit;
 use tracing::Subscriber;
+use tracing_subscriber::field::RecordFields;
+use tracing_subscriber::fmt::FormatFields;
 
 pub fn relative_path(path: &str) -> String {
     let manifest_dir = env!("CARGO_MANIFEST_DIR");
@@ -49,6 +52,7 @@ where
 
                 // get already-formatted fields
                 let extensions = span.extensions();
+                // span.fields()
                 let fields = &extensions
                     .get::<tracing_subscriber::fmt::FormattedFields<N>>()
                     .expect("cannot get fields");
@@ -68,8 +72,10 @@ where
             }
         }
 
-        // write field using field formatter
-        context.field_format().format_fields(writer.by_ref(), event)?;
+        // write event using field formatter
+        context
+            .field_format()
+            .format_fields(writer.by_ref(), event)?;
 
         // newline
         writeln!(writer)?;
@@ -79,17 +85,52 @@ where
     }
 }
 
-pub fn setup_tracing() {
-    // let format = tracing_subscriber::fmt::format()
-    //     .with_source_location(false)
-    //     .with_target(true)
-    //     .with_timer(tracing_subscriber::fmt::time::SystemTime)
-    //     .compact();
+impl<'writer> FormatFields<'writer> for CustomFormat {
+    fn format_fields<R: RecordFields>(
+        &self,
+        writer: tracing_subscriber::fmt::format::Writer<'writer>,
+        fields: R,
+    ) -> std::fmt::Result {
+        let mut visitor = FieldVisitor { writer };
+        fields.record(&mut visitor);
+        visitor.finish()
+    }
+}
 
-    let my_subscriber = tracing_subscriber::fmt()
+struct FieldVisitor<'writer> {
+    writer: tracing_subscriber::fmt::format::Writer<'writer>,
+}
+
+impl Visit for FieldVisitor<'_> {
+    fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn std::fmt::Debug) {
+        if field.name().eq("message") {
+            let _ = write!(self.writer, "{:?} ", value);
+        } else {
+            let _ = write!(self.writer, "{}={:?} ", field.name(), value);
+        }
+    }
+
+    fn record_str(&mut self, field: &tracing::field::Field, value: &str) {
+        if field.name().eq("message") {
+            let _ = write!(self.writer, "{} ", value);
+        } else {
+            let _ = write!(self.writer, "{}={} ", field.name(), value);
+        }
+    }
+}
+
+impl FieldVisitor<'_> {
+    fn finish(&mut self) -> std::fmt::Result {
+        write!(self.writer, " ")
+    }
+}
+
+pub fn setup_tracing() {
+    let subscriber = tracing_subscriber::fmt()
         .event_format(CustomFormat)
+        // .fmt_fields(CustomFormat)
         .finish();
-    tracing::subscriber::set_global_default(my_subscriber).expect("setting tracing default failed");
+    tracing::subscriber::set_global_default(subscriber).expect("setting global tracer failed");
 
     tracing::info!("tracing setup done");
 }

@@ -20,7 +20,7 @@ use common::{
     LoginError, LoginRequest, LoginResponse, LoginSuccess, Test1, USERNAME_ID_COOKIE,
     USER_ID_COOKIE,
 };
-use hyper::{Body, Method, Request};
+use hyper::{Body, Request};
 use std::net::SocketAddr;
 use time::OffsetDateTime;
 use tower::Service;
@@ -90,13 +90,18 @@ async fn api_test3(
 // TODO: de-duplicate cookie code with a new struct that contains both private and regular jars
 // TODO: format and log relevant cookies
 #[axum::debug_handler]
-#[instrument(skip(private_cookies, regular_cookies))]
+#[instrument(skip(private_cookies, regular_cookies, login_req), fields(req_u))]
 async fn login(
     State(_): State<BackendState>, // for cookie jar key
     private_cookies: PrivateCookieJar,
     regular_cookies: CookieJar,
     login_req: Option<Json<LoginRequest>>,
 ) -> impl IntoResponse {
+    // add request username to tracing span
+    if let Some(Json(req)) = &login_req {
+        tracing::Span::current().record("req_u", &req.username);
+    };
+
     // mutable
     let (mut private_cookies, mut regular_cookies) = (private_cookies, regular_cookies);
 
@@ -156,7 +161,8 @@ async fn login(
     });
     (private_cookies, regular_cookies) = authenticated.cookies(private_cookies, regular_cookies);
 
-    info!(authenticated.id = authenticated.id);
+    // TODO: also log username
+    info!(logged_in_id = authenticated.id);
 
     return (
         StatusCode::OK,
@@ -353,9 +359,9 @@ async fn frontend_handler(
         Ok(res) => {
             // TODO: figure out dynamic level for trace!, could be done via macro
             if res.status().is_success() {
-                info!(status = res.status().as_str());
+                info!(status = res.status().as_u16());
             } else {
-                warn!(status = res.status().as_str());
+                warn!(status = res.status().as_u16());
             };
 
             return Ok(res);
