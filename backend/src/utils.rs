@@ -63,12 +63,8 @@ where
                     write!(writer, "{{{}}}", fields)?;
                 }
 
-                if spans.peek().is_some() {
-                    // there is another span
-                    write!(writer, ">")?;
-                } else {
-                    write!(writer, " ")?;
-                }
+                // done with span
+                write!(writer, " ")?;
             }
         }
 

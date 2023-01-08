@@ -60,5 +60,10 @@ pub enum PermissionFail {
     BadCookie,
 }
 
+#[derive(Clone, PartialEq, Serialize, Deserialize, Debug)]
+pub struct WhoAmIResponse {
+    pub username: String
+}
+
 pub static USER_ID_COOKIE: &'static str = "user_id";
 pub static USERNAME_ID_COOKIE: &'static str = "username";

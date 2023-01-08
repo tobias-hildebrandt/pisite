@@ -8,11 +8,12 @@ use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
 use hyper::StatusCode;
 use r2d2::{self, PooledConnection};
 use rand::Rng;
-use tracing::{error, info, instrument};
+use tracing::{error, info, instrument, warn};
 
+use super::crypt;
 use super::schema;
 
-const DATABASE_LOCATION: &str = "relay.sqlite3";
+const DEFAULT_DATABASE_LOCATION: &str = "relay.sqlite3";
 
 const MIGRATIONS: EmbeddedMigrations = embed_migrations!("sql");
 
@@ -27,12 +28,21 @@ pub enum DBError {
     Query(#[from] diesel::result::Error),
     #[error("DB Pool Error {0:?}")]
     Pool(#[from] r2d2::Error),
+    #[error("Crypt Error {0:?}")]
+    Crypt(#[from] argon2::password_hash::Error),
 }
 
 impl IntoResponse for DBError {
     fn into_response(self) -> axum::response::Response {
         error!(target: "DBError", "{}", self);
-        (StatusCode::INTERNAL_SERVER_ERROR, "").into_response()
+        (StatusCode::INTERNAL_SERVER_ERROR).into_response()
+    }
+}
+
+impl From<DBError> for hyper::StatusCode {
+    fn from(val: DBError) -> Self {
+        error!(target: "DBError", "{}", val);
+        StatusCode::INTERNAL_SERVER_ERROR
     }
 }
 
@@ -40,22 +50,31 @@ impl IntoResponse for DBError {
 pub struct ExistingUser {
     pub id: i32,
     pub username: String,
+    pub password_crypt: String,
 }
 
 #[derive(Insertable, Debug)]
 #[diesel(table_name = schema::users)]
 pub struct NewUser {
     pub username: String,
+    pub password_crypt: String,
 }
 
-#[instrument(skip(connection))]
-fn create_dummy_user(connection: &mut SqliteConnection, username: &str) -> Result<(), DBError> {
+#[instrument(skip(connection, password_plaintext))]
+fn create_dummy_user(
+    connection: &mut SqliteConnection,
+    username: &str,
+    password_plaintext: &str,
+) -> Result<(), DBError> {
+    let crypted = crypt::encrypt_password(password_plaintext)?;
     let new_user = NewUser {
         username: username.to_string(),
+        password_crypt: crypted,
     };
     diesel::insert_into(schema::users::table)
         .values(&new_user)
         .execute(connection)?;
+
     let resulting_user: ExistingUser = schema::users::dsl::users
         .find(sql("last_insert_rowid()"))
         .get_result(connection)?;
@@ -69,9 +88,38 @@ pub fn get_all_users(connection: &mut SqliteConnection) -> Result<Vec<ExistingUs
     Ok(schema::users::dsl::users.load::<ExistingUser>(connection)?)
 }
 
+pub fn get_user(connection: &mut SqliteConnection, user_id: i32) -> Result<ExistingUser, DBError> {
+    let u = schema::users::dsl::users
+        .filter(schema::users::id.eq(user_id))
+        .first(connection)?;
+    Ok(u)
+}
+
 // private function, only used when initializing DB
 fn direct_connection() -> ConnectionResult<SqliteConnection> {
-    SqliteConnection::establish(DATABASE_LOCATION)
+    let url = if let Ok(env_var) = std::env::var("DATABASE_URL") {
+        env_var
+    } else {
+        warn!(
+            "no env var: DATABASE_URL, using default database location: {}",
+            DEFAULT_DATABASE_LOCATION
+        );
+        DEFAULT_DATABASE_LOCATION.to_string()
+    };
+    SqliteConnection::establish(&url)
+}
+
+#[instrument(skip(connection))]
+fn create_dummy_users(connection: &mut SqliteConnection, num: usize) {
+    // create some dummy users
+    for _ in 0..num {
+        let num = rand::thread_rng().gen_range(0u16..100);
+        let username = format!("testuser{:02}", num);
+        let dummy_password = format!("dummy_pass_{:02}", num);
+        if let Err(e) = create_dummy_user(connection, &username, &dummy_password) {
+            error!("error adding user with username '{username}': {e}");
+        }
+    }
 }
 
 #[instrument]
@@ -84,14 +132,7 @@ fn init() -> Result<(), DBError> {
         .run_pending_migrations(MIGRATIONS)
         .map_err(DBError::Migration)?;
 
-    // create some dummy users
-    for _ in 0..10 {
-        let num = rand::thread_rng().gen_range(0u16..100);
-        let username = format!("testuser{:02}", num);
-        if let Err(e) = create_dummy_user(connection, &username) {
-            error!("error adding user with username '{username}': {e}");
-        }
-    }
+    // create_dummy_users(connection, 10);
 
     // load all users
     let users = schema::users::dsl::users.load::<ExistingUser>(connection)?;
@@ -125,7 +166,7 @@ pub fn init_and_get_connection_pool() -> Result<ConnPool, DBError> {
     let pool = Pool::builder()
         .connection_customizer(Box::new(ConnOptions))
         .build(ConnectionManager::<SqliteConnection>::new(
-            DATABASE_LOCATION,
+            DEFAULT_DATABASE_LOCATION,
         ))?;
 
     Ok(ConnPool { pool })

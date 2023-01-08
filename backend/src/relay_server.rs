@@ -17,8 +17,8 @@ use axum_extra::extract::{
     CookieJar,
 };
 use common::{
-    LoginError, LoginRequest, LoginResponse, LoginSuccess, Test1, USERNAME_ID_COOKIE,
-    USER_ID_COOKIE,
+    LoginError, LoginRequest, LoginResponse, LoginSuccess, Test1, WhoAmIResponse,
+    USERNAME_ID_COOKIE, USER_ID_COOKIE,
 };
 use hyper::{Body, Request};
 use std::net::SocketAddr;
@@ -90,7 +90,7 @@ async fn api_test3(
 // TODO: de-duplicate cookie code with a new struct that contains both private and regular jars
 // TODO: format and log relevant cookies
 #[axum::debug_handler]
-#[instrument(skip(private_cookies, regular_cookies, login_req), fields(req_u))]
+#[instrument(skip(private_cookies, regular_cookies, login_req), fields(attempted))]
 async fn login(
     State(_): State<BackendState>, // for cookie jar key
     private_cookies: PrivateCookieJar,
@@ -99,7 +99,7 @@ async fn login(
 ) -> impl IntoResponse {
     // add request username to tracing span
     if let Some(Json(req)) = &login_req {
-        tracing::Span::current().record("req_u", &req.username);
+        tracing::Span::current().record("attempted", &req.username);
     };
 
     // mutable
@@ -184,19 +184,20 @@ fn wipe_cookies(private: PrivateCookieJar, regular: CookieJar) -> (PrivateCookie
 
     // add regular blank cookies that have already expired
     let mut user_id = Cookie::new(USER_ID_COOKIE, "");
+    user_id.set_path("/"); // matches all subpaths
     user_id.set_expires(Expiration::from(OffsetDateTime::UNIX_EPOCH));
 
-    let mut username = Cookie::new(USERNAME_ID_COOKIE, "");
-    username.set_expires(Expiration::from(OffsetDateTime::UNIX_EPOCH));
+    // let mut username = Cookie::new(USERNAME_ID_COOKIE, "");
+    // username.set_expires(Expiration::from(OffsetDateTime::UNIX_EPOCH));
 
     let regular = regular.add(user_id);
-    let regular = regular.add(username);
+    // let regular = regular.add(username);
 
     return (private, regular);
 }
 
-// TODO: access database
-// TODO: format and log relevant cookies
+// TODO: remove session from database?
+// TODO: better error logging
 #[axum::debug_handler]
 #[instrument(skip(private_cookies, regular_cookies))]
 async fn logout(
@@ -221,6 +222,51 @@ async fn logout(
     // for now, just tell client to wipe all cookies
     let (private_cookies, regular_cookies) = wipe_cookies(private_cookies, regular_cookies);
     return (StatusCode::OK, private_cookies, regular_cookies);
+}
+
+#[axum::debug_handler]
+#[instrument(skip_all)]
+async fn whoami(
+    State(BackendState {
+        key: _,
+        connection_pool,
+    }): State<BackendState>,
+    private_cookies: PrivateCookieJar,
+) -> Result<impl IntoResponse, StatusCode> {
+    let user_id = match private_cookies.get(USER_ID_COOKIE) {
+        Some(c) => c.value().to_string(),
+        None => {
+            warn!(e = "no id cookie");
+            return Err(StatusCode::FORBIDDEN);
+        }
+    };
+
+    let user_id = match user_id.parse::<i32>() {
+        Ok(u) => u,
+        Err(_e) => {
+            warn!(e = "invalid id cookie", c = user_id);
+            return Err(StatusCode::FORBIDDEN);
+        }
+    };
+
+    let mut conn = match connection_pool.get() {
+        Ok(c) => c,
+        Err(e) => {
+            error!("{:?}", e);
+            return Err(StatusCode::INTERNAL_SERVER_ERROR);
+        }
+    };
+
+    let u = db::get_user(&mut conn, user_id)?;
+
+    info!(u = u.username);
+
+    return Ok((
+        StatusCode::OK,
+        Json(WhoAmIResponse {
+            username: u.username,
+        }),
+    ));
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -261,10 +307,14 @@ async fn main() -> Result<(), RunError> {
         .route(&api_route(API_PREFIX, "login"), post(login))
         .route(&api_route(API_PREFIX, "logout"), post(logout))
         .route(&api_route(API_PREFIX, "test3"), get(api_test3))
-        .with_state(backend_state);
+        .route(&api_route(API_PREFIX, "whoami"), get(whoami))
+        .with_state(backend_state.clone());
 
     // add request tracing
-    let app = app.layer(axum::middleware::from_fn(add_trace_layer));
+    let app = app.layer(axum::middleware::from_fn_with_state(
+        backend_state.clone(),
+        add_trace_layer,
+    ));
 
     axum::Server::bind(&"0.0.0.0:8000".parse().expect("unable to bind"))
         .serve(app.into_make_service_with_connect_info::<SocketAddr>())
@@ -275,7 +325,12 @@ async fn main() -> Result<(), RunError> {
 }
 
 async fn add_trace_layer<B>(
+    State(BackendState {
+        key,
+        connection_pool: _connection_pool,
+    }): State<BackendState>,
     ConnectInfo(addr): ConnectInfo<SocketAddr>,
+
     request: hyper::Request<B>,
     next: axum::middleware::Next<B>,
 ) -> impl IntoResponse {
@@ -283,10 +338,15 @@ async fn add_trace_layer<B>(
     let method = request.method().as_str();
     let path = request.uri().path();
     let headers = request.headers();
-    let user_id = headers
-        .get(USER_ID_COOKIE)
-        .map(|h| h.to_str().unwrap_or("non-ascii"))
-        .unwrap_or("none");
+
+    // extract user_id cookie using state key
+    let private_cookies = PrivateCookieJar::from_headers(headers, key);
+    let user_id = match private_cookies.get(USER_ID_COOKIE) {
+        Some(c) => c.value().to_string(),
+        None => "none".to_string(),
+    };
+
+    // TODO: get user from DB
 
     // put it in a span
     let span = tracing::span!(
