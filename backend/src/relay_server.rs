@@ -4,7 +4,6 @@ mod utils;
 
 use std::sync::Arc;
 
-use auth::Authenticated;
 use axum::{
     extract::{ConnectInfo, FromRef, Path, State},
     http::StatusCode,
@@ -90,91 +89,35 @@ async fn api_test3(
 // TODO: de-duplicate cookie code with a new struct that contains both private and regular jars
 // TODO: format and log relevant cookies
 #[axum::debug_handler]
-#[instrument(skip(private_cookies, regular_cookies, login_req), fields(attempted))]
+#[instrument(skip_all, fields(attempted))]
 async fn login(
-    State(_): State<BackendState>, // for cookie jar key
+    State(BackendState {
+        key: _key,
+        connection_pool,
+    }): State<BackendState>,
     private_cookies: PrivateCookieJar,
     regular_cookies: CookieJar,
-    login_req: Option<Json<LoginRequest>>,
-) -> impl IntoResponse {
-    // add request username to tracing span
-    if let Some(Json(req)) = &login_req {
-        tracing::Span::current().record("attempted", &req.username);
-    };
+    login_req: Json<LoginRequest>,
+) -> Result<impl IntoResponse, StatusCode> {
+    tracing::Span::current().record("attempted", &login_req.username);
 
     // mutable
     let (mut private_cookies, mut regular_cookies) = (private_cookies, regular_cookies);
 
-    //no body
-    if login_req.is_none() {
-        match private_cookies.get(USER_ID_COOKIE) {
-            Some(cookie) => {
-                // you sent us a user ID cookie and no body
-                let u = get_user_from_cookie(&cookie);
+    let conn = &mut connection_pool.get()?;
+    let user = db::attempt_login(conn, &login_req.username, &login_req.password)?;
+    (private_cookies, regular_cookies) = user.cookies(private_cookies, regular_cookies);
 
-                match u {
-                    Some(auth) => {
-                        // wipe old cookie
-                        (private_cookies, regular_cookies) =
-                            wipe_cookies(private_cookies, regular_cookies);
+    info!(id = user.id, username = user.username);
 
-                        // set your new cookies
-                        (private_cookies, regular_cookies) =
-                            auth.cookies(private_cookies, regular_cookies);
-                    }
-                    None => {
-                        // your cookie is invalid
-                        // wipe old cookie
-                        (private_cookies, regular_cookies) =
-                            wipe_cookies(private_cookies, regular_cookies);
-
-                        warn!(e = "invalid cookie, wiping");
-
-                        return (
-                            StatusCode::FORBIDDEN,
-                            private_cookies,
-                            regular_cookies,
-                            Json(LoginResponse::Error(LoginError::InvalidData)),
-                        );
-                    }
-                }
-            }
-            None => {
-                // no cookies and no body??
-                warn!(e = "no valid user_id cookie or body, wiping");
-
-                // delete any id cookie you have
-                (private_cookies, regular_cookies) = wipe_cookies(private_cookies, regular_cookies);
-                return (
-                    StatusCode::BAD_REQUEST,
-                    private_cookies,
-                    regular_cookies,
-                    Json(LoginResponse::Error(LoginError::InvalidData)),
-                );
-            }
-        }
-    }
-    // TODO: get from DB using login_req
-    let authenticated = Authenticated { id: 1 };
-    let login_result = LoginResponse::Success(LoginSuccess {
-        id: authenticated.id,
-    });
-    (private_cookies, regular_cookies) = authenticated.cookies(private_cookies, regular_cookies);
-
-    // TODO: also log username
-    info!(logged_in_id = authenticated.id);
-
-    return (
+    return Ok((
         StatusCode::OK,
         private_cookies,
         regular_cookies,
-        Json(login_result),
-    );
-}
-
-// TODO: use DB to check
-fn get_user_from_cookie(_cookie: &Cookie) -> Option<Authenticated> {
-    return Some(Authenticated { id: 1 });
+        Json(LoginSuccess {
+            username: user.username,
+        }),
+    ));
 }
 
 fn wipe_cookies(private: PrivateCookieJar, regular: CookieJar) -> (PrivateCookieJar, CookieJar) {
@@ -205,20 +148,6 @@ async fn logout(
     private_cookies: PrivateCookieJar,
     regular_cookies: CookieJar,
 ) -> impl IntoResponse {
-    match private_cookies.get(USER_ID_COOKIE) {
-        Some(c) => match get_user_from_cookie(&c) {
-            Some(user) => {
-                info!(user.id = user.id);
-            }
-            None => {
-                warn!(e = "had invalid id cookie");
-            }
-        },
-        None => {
-            warn!(e = "had no private user id cookie");
-        }
-    }
-
     // for now, just tell client to wipe all cookies
     let (private_cookies, regular_cookies) = wipe_cookies(private_cookies, regular_cookies);
     return (StatusCode::OK, private_cookies, regular_cookies);
@@ -237,7 +166,7 @@ async fn whoami(
         Some(c) => c.value().to_string(),
         None => {
             warn!(e = "no id cookie");
-            return Err(StatusCode::FORBIDDEN);
+            return Err(StatusCode::UNAUTHORIZED);
         }
     };
 
@@ -245,7 +174,7 @@ async fn whoami(
         Ok(u) => u,
         Err(_e) => {
             warn!(e = "invalid id cookie", c = user_id);
-            return Err(StatusCode::FORBIDDEN);
+            return Err(StatusCode::UNAUTHORIZED);
         }
     };
 
@@ -257,7 +186,7 @@ async fn whoami(
         }
     };
 
-    let u = db::get_user(&mut conn, user_id)?;
+    let u = db::get_user_by_id(&mut conn, user_id)?;
 
     info!(u = u.username);
 

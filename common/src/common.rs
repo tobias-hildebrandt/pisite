@@ -44,7 +44,7 @@ pub enum LogoutResponse {
 
 #[derive(Clone, PartialEq, Serialize, Deserialize, Debug)]
 pub struct LoginSuccess {
-    pub id: u64,
+    pub username: String,
 }
 
 #[derive(Clone, PartialEq, Serialize, Deserialize, Debug)]

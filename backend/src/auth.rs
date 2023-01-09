@@ -1,11 +1,9 @@
 use axum_extra::extract::{PrivateCookieJar, CookieJar, cookie::Cookie};
 use common::{USER_ID_COOKIE, USERNAME_ID_COOKIE};
 
-pub struct Authenticated {
-    pub id: u64,
-}
+use crate::db::ExistingUser;
 
-impl Authenticated {
+impl ExistingUser {
     pub fn cookies(&self, private: PrivateCookieJar, regular: CookieJar) -> (PrivateCookieJar, CookieJar) {
         // TODO: harden cookies
         let username = "this_is_a_username";

@@ -8,7 +8,7 @@ use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
 use hyper::StatusCode;
 use r2d2::{self, PooledConnection};
 use rand::Rng;
-use tracing::{error, info, instrument, warn};
+use tracing::{error, info, instrument, span, warn};
 
 use super::crypt;
 use super::schema;
@@ -34,15 +34,22 @@ pub enum DBError {
 
 impl IntoResponse for DBError {
     fn into_response(self) -> axum::response::Response {
-        error!(target: "DBError", "{}", self);
-        (StatusCode::INTERNAL_SERVER_ERROR).into_response()
+        let code = hyper::StatusCode::from(self);
+        code.into_response()
     }
 }
 
 impl From<DBError> for hyper::StatusCode {
     fn from(val: DBError) -> Self {
         error!(target: "DBError", "{}", val);
-        StatusCode::INTERNAL_SERVER_ERROR
+
+        match val {
+            DBError::Query(_) => StatusCode::UNAUTHORIZED,
+            DBError::Connection(_)
+            | DBError::Migration(_)
+            | DBError::Pool(_)
+            | DBError::Crypt(_) => StatusCode::INTERNAL_SERVER_ERROR,
+        }
     }
 }
 
@@ -88,16 +95,68 @@ pub fn get_all_users(connection: &mut SqliteConnection) -> Result<Vec<ExistingUs
     Ok(schema::users::dsl::users.load::<ExistingUser>(connection)?)
 }
 
-pub fn get_user(connection: &mut SqliteConnection, user_id: i32) -> Result<ExistingUser, DBError> {
+pub fn get_user_by_id(
+    connection: &mut SqliteConnection,
+    user_id: i32,
+) -> Result<ExistingUser, DBError> {
     let u = schema::users::dsl::users
         .filter(schema::users::id.eq(user_id))
         .first(connection)?;
     Ok(u)
 }
 
-// private function, only used when initializing DB
-fn direct_connection() -> ConnectionResult<SqliteConnection> {
-    let url = if let Ok(env_var) = std::env::var("DATABASE_URL") {
+pub fn get_user_by_username(
+    connection: &mut SqliteConnection,
+    username: &str,
+) -> Result<ExistingUser, DBError> {
+    let u = schema::users::dsl::users
+        .filter(schema::users::username.eq(username))
+        .first(connection)?;
+
+    Ok(u)
+}
+
+#[derive(thiserror::Error, Debug)]
+pub enum LoginError {
+    #[error("DB Error {0:?}")]
+    DBError(#[from] DBError),
+    #[error("Login Fail")]
+    LoginFail,
+}
+
+impl From<LoginError> for hyper::StatusCode {
+    fn from(val: LoginError) -> Self {
+        let _enter = span!(tracing::Level::WARN, "LoginError").entered();
+        match val {
+            LoginError::LoginFail => StatusCode::UNAUTHORIZED,
+            LoginError::DBError(e) => e.into(),
+        }
+    }
+}
+
+pub fn attempt_login(
+    connection: &mut SqliteConnection,
+    username: &str,
+    password_plaintext: &str,
+) -> Result<ExistingUser, LoginError> {
+    let u: ExistingUser = schema::users::dsl::users
+        .filter(schema::users::username.eq(username))
+        .first(connection)
+        .map_err(|e| LoginError::DBError(DBError::Query(e)))?;
+
+    let valid_login = crypt::verify_password(password_plaintext, &u.password_crypt)
+        .map_err(|e| LoginError::DBError(DBError::Crypt(e)))?;
+
+    if valid_login {
+        Ok(u)
+    } else {
+        Err(LoginError::LoginFail)
+    }
+}
+
+fn database_location() -> String {
+    if let Ok(env_var) = std::env::var("DATABASE_URL") {
+        info!("using data base location: {}", env_var);
         env_var
     } else {
         warn!(
@@ -105,8 +164,12 @@ fn direct_connection() -> ConnectionResult<SqliteConnection> {
             DEFAULT_DATABASE_LOCATION
         );
         DEFAULT_DATABASE_LOCATION.to_string()
-    };
-    SqliteConnection::establish(&url)
+    }
+}
+
+// private function, only used when initializing DB
+fn direct_connection(database_location: &str) -> ConnectionResult<SqliteConnection> {
+    SqliteConnection::establish(&database_location)
 }
 
 #[instrument(skip(connection))]
@@ -122,16 +185,35 @@ fn create_dummy_users(connection: &mut SqliteConnection, num: usize) {
     }
 }
 
-#[instrument]
-fn init() -> Result<(), DBError> {
+fn create_test_user(connection: &mut SqliteConnection) -> Result<(), DBError> {
+    const TEST_USERNAME: &str = "test_user";
+    const TEST_PLAIN_PASS: &str = "test_password";
+    match get_user_by_username(connection, TEST_USERNAME) {
+        Ok(u) => {
+            info!("test user already exists: {:?}", u);
+            Ok(())
+        }
+        Err(e) => match e {
+            DBError::Query(_q) => create_dummy_user(connection, TEST_USERNAME, TEST_PLAIN_PASS),
+            DBError::Connection(_) | _ => {
+                error!("{:?}", e);
+                Err(e)
+            }
+        },
+    }
+}
+
+#[instrument(skip_all)]
+fn init(database_location: &str) -> Result<(), DBError> {
     // get initial connection
-    let connection = &mut direct_connection()?;
+    let connection = &mut direct_connection(database_location)?;
 
     // run migrations if needed
     let _migrations_run: Vec<_> = connection
         .run_pending_migrations(MIGRATIONS)
         .map_err(DBError::Migration)?;
 
+    create_test_user(connection)?;
     // create_dummy_users(connection, 10);
 
     // load all users
@@ -161,13 +243,12 @@ impl ConnPool {
 
 // https://stackoverflow.com/a/57717533
 pub fn init_and_get_connection_pool() -> Result<ConnPool, DBError> {
-    init()?;
+    let db_location = database_location();
+    init(&db_location)?;
 
     let pool = Pool::builder()
         .connection_customizer(Box::new(ConnOptions))
-        .build(ConnectionManager::<SqliteConnection>::new(
-            DEFAULT_DATABASE_LOCATION,
-        ))?;
+        .build(ConnectionManager::<SqliteConnection>::new(&db_location))?;
 
     Ok(ConnPool { pool })
 }
