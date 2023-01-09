@@ -41,7 +41,7 @@ impl IntoResponse for DBError {
 
 impl From<DBError> for hyper::StatusCode {
     fn from(val: DBError) -> Self {
-        error!(target: "DBError", "{}", val);
+        warn!("{}", val);
 
         match val {
             DBError::Query(_) => StatusCode::UNAUTHORIZED,

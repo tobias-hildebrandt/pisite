@@ -9,12 +9,12 @@ pub struct Test1 {
 
 #[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub struct User {
-    pub id: u64,
+    pub username: String,
 }
 
 impl Display for User {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.id)
+        write!(f, "{}", self.username)
     }
 }
 

@@ -1,7 +1,7 @@
 use std::fmt::Display;
 
 use crate::console_log;
-use crate::utils::*;
+
 use common::*;
 use gloo_net::http::Method;
 use gloo_net::http::Request;
@@ -75,7 +75,7 @@ impl Component for AuthComponent {
                     false
                 }
                 LoginResponse::Success(s) => {
-                    self.status = AuthStatus::LoggedIn(User { id: s.id });
+                    self.status = AuthStatus::LoggedIn(User { username: s.username });
                     true
                 }
             },
