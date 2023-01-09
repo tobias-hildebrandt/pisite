@@ -4,7 +4,7 @@ use common::{LoginRequest, LoginSuccess, WhoAmIResponse, USER_ID_COOKIE};
 use hyper::StatusCode;
 use tracing::{error, info, instrument, warn};
 
-use crate::{cookies, db, BackendState};
+use crate::{cookies::wipe_cookies, db, BackendState};
 
 // TODO: de-duplicate cookie code with a new struct that contains both private and regular jars
 // TODO: format and log relevant cookies
@@ -23,6 +23,9 @@ pub async fn login(
 
     // mutable
     let (mut private_cookies, mut regular_cookies) = (private_cookies, regular_cookies);
+
+    // wipe no matter what
+    (private_cookies, regular_cookies) = wipe_cookies(private_cookies, regular_cookies);
 
     let conn = &mut connection_pool.get()?;
     let user = db::attempt_login(conn, &login_req.username, &login_req.password)?;
@@ -50,8 +53,8 @@ pub async fn logout(
     regular_cookies: CookieJar,
 ) -> impl IntoResponse {
     // for now, just tell client to wipe all cookies
-    let (private_cookies, regular_cookies) =
-        cookies::wipe_cookies(private_cookies, regular_cookies);
+    let (private_cookies, regular_cookies) = wipe_cookies(private_cookies, regular_cookies);
+    info!("logged out");
     return (StatusCode::OK, private_cookies, regular_cookies);
 }
 
