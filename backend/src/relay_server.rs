@@ -1,8 +1,8 @@
 mod cookies;
+mod crypt;
 mod db;
 mod endpoints;
 mod utils;
-mod crypt;
 
 use axum::{
     extract::{ConnectInfo, State},
