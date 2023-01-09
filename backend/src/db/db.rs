@@ -234,7 +234,6 @@ pub struct ConnPool {
 
 impl ConnPool {
     pub fn get(&self) -> Result<PooledConnection<ConnectionManager<SqliteConnection>>, DBError> {
-        // TODO: figure out of PooledConnection is OK
         let conn = self.pool.get()?;
 
         Ok(conn)
