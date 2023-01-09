@@ -1,4 +1,3 @@
-mod crypt;
 mod db;
 mod schema;
 

@@ -10,7 +10,7 @@ use r2d2::{self, PooledConnection};
 use rand::Rng;
 use tracing::{error, info, instrument, span, warn};
 
-use super::crypt;
+use crate::crypt;
 use super::schema;
 
 const DEFAULT_DATABASE_LOCATION: &str = "relay.sqlite3";
