@@ -6,6 +6,7 @@ extern "C" {
     pub fn log(s: &str);
 }
 
+/// TODO: replace with tracing-wasm
 #[macro_export]
 macro_rules! console_log {
     ($($t:tt)*) => (crate::utils::log(&format_args!($($t)*).to_string()))

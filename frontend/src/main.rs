@@ -11,9 +11,9 @@ fn app() -> Html {
         <>
             <h1>{"Hello World"}</h1>
             // each html attribute corresponds to a value in the props argument
-            <auth::AuthComponent /><br />
+            <auth::auth::AuthComponent /><br />
             <number::NumberComponent endpoint="/api/test1"/><br />
-            <number::NumberComponent endpoint="/api/test2"/>
+            <number::NumberComponent endpoint="/api/test2"/><br />
         </>
     }
 }

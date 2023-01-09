@@ -1,6 +1,6 @@
 use axum::{extract::State, response::IntoResponse, Json};
 use axum_extra::extract::{CookieJar, PrivateCookieJar};
-use common::{LoginRequest, LoginSuccess, WhoAmIResponse, USER_ID_COOKIE};
+use common::{LoginRequest, LoginSuccess, USER_ID_COOKIE};
 use hyper::StatusCode;
 use tracing::{error, info, instrument, warn};
 
@@ -103,7 +103,7 @@ pub async fn whoami(
 
     return Ok((
         StatusCode::OK,
-        Json(WhoAmIResponse {
+        Json(LoginSuccess {
             username: u.username,
         }),
     ));
