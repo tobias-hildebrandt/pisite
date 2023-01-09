@@ -1,8 +1,7 @@
 use gloo_net::http::{Method, Request};
 
+use tracing::{error, info, instrument};
 use yew::{html, Callback, Component, Context, Html, Properties};
-
-use crate::console_log;
 
 use super::auth::LogoutResponse;
 
@@ -18,6 +17,7 @@ pub struct LogoutProperties {
 }
 
 /// Internal message for LogoutComponent.
+#[derive(Debug)]
 pub enum LogoutComponentMessage {
     /// Sent to trigger a logout attempt
     DoLogout,
@@ -30,7 +30,9 @@ impl Component for LogoutComponent {
 
     type Properties = LogoutProperties;
 
+    #[instrument(skip_all)]
     fn create(_ctx: &Context<Self>) -> Self {
+        info!("");
         Self
     }
 
@@ -41,10 +43,11 @@ impl Component for LogoutComponent {
         }
     }
 
+    #[instrument(skip(self, ctx))]
     fn update(&mut self, ctx: &Context<Self>, msg: Self::Message) -> bool {
         match msg {
             LogoutComponentMessage::Result { success } => {
-                console_log!("LogoutComponent: logout result: {}", success);
+                info!("LogoutComponent: logout result: {}", success);
                 ctx.props().parent_callback.emit(match success {
                     true => LogoutResponse::Success,
                     false => LogoutResponse::Failure,
@@ -56,7 +59,7 @@ impl Component for LogoutComponent {
                     match result {
                         Ok(success) => LogoutComponentMessage::Result { success },
                         Err(e) => {
-                            console_log!("LogoutComponent: logout failure: {}", e);
+                            error!("LogoutComponent: logout failure: {}", e);
                             LogoutComponentMessage::Result { success: false }
                         }
                     }

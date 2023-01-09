@@ -1,10 +1,9 @@
 use common::LoginRequest;
 use gloo_net::http::{Method, Request};
+use tracing::{error, info, instrument};
 use wasm_bindgen::JsCast;
 use web_sys::{Event, FocusEvent, HtmlInputElement};
 use yew::{html, Callback, Component, Context, Html, Properties};
-
-use crate::console_log;
 
 use super::auth::LoginResponse;
 
@@ -16,29 +15,40 @@ pub struct LoginComponent {
     password: String,
 }
 
-/// Properties for LoginComponent
+/// Properties for LoginComponent.
 #[derive(Properties, PartialEq)]
 pub struct LoginProps {
     pub parent_callback: Callback<LoginResponse>,
 }
 
-pub enum LoginMessage {
+/// Internal message for LoginComponent.
+#[derive(Debug)]
+pub enum LoginComponentMessage {
+    /// Sent when user hits submit.
     UserInputSubmit,
-    AskWithCookie,
-    GotResponse(LoginResponse),
+    /// Sent when user changes the username input.
     UserInputUsernameChange(String),
+    /// Sent when the user changes the password input.
     UserInputPasswordChange(String),
+    /// Sent to trigger a login via cookie.
+    AskWithCookie,
+    /// Sent when a login attempt is done.
+    GotResponse(LoginResponse),
+    /// Sent when a login attempt fails unexpectedly.
     Failure(gloo_net::Error),
 }
 
 impl Component for LoginComponent {
-    type Message = LoginMessage;
+    type Message = LoginComponentMessage;
 
     type Properties = LoginProps;
 
+    #[instrument(skip_all)]
     fn create(ctx: &Context<Self>) -> Self {
+        info!("");
         // check if we are already logged in (via cookie) on creation
-        ctx.link().send_message(LoginMessage::AskWithCookie);
+        ctx.link()
+            .send_message(LoginComponentMessage::AskWithCookie);
 
         Self::default()
     }
@@ -50,7 +60,7 @@ impl Component for LoginComponent {
                 .unwrap()
                 .unchecked_into::<HtmlInputElement>()
                 .value();
-            LoginMessage::UserInputUsernameChange(input)
+            LoginComponentMessage::UserInputUsernameChange(input)
         });
 
         let on_password_change = ctx.link().callback(|event: Event| {
@@ -59,12 +69,12 @@ impl Component for LoginComponent {
                 .unwrap()
                 .unchecked_into::<HtmlInputElement>()
                 .value();
-            LoginMessage::UserInputPasswordChange(input)
+            LoginComponentMessage::UserInputPasswordChange(input)
         });
 
         let on_submit = ctx.link().callback(|e: FocusEvent| {
             e.prevent_default();
-            LoginMessage::UserInputSubmit
+            LoginComponentMessage::UserInputSubmit
         });
 
         html! {
@@ -81,9 +91,10 @@ impl Component for LoginComponent {
         }
     }
 
+    #[instrument(skip(self, ctx))]
     fn update(&mut self, ctx: &Context<Self>, message: Self::Message) -> bool {
         match message {
-            LoginMessage::UserInputSubmit => {
+            LoginComponentMessage::UserInputSubmit => {
                 // try to log in
                 let req = LoginRequest {
                     username: self.username.clone(),
@@ -92,35 +103,35 @@ impl Component for LoginComponent {
 
                 ctx.link().send_future(async {
                     match try_login(req).await {
-                        Ok(r) => LoginMessage::GotResponse(r),
-                        Err(e) => LoginMessage::Failure(e),
+                        Ok(r) => LoginComponentMessage::GotResponse(r),
+                        Err(e) => LoginComponentMessage::Failure(e),
                     }
                 });
 
                 false
             }
-            LoginMessage::GotResponse(r) => {
+            LoginComponentMessage::GotResponse(r) => {
                 ctx.props().parent_callback.emit(r);
                 false
             }
-            LoginMessage::UserInputUsernameChange(u) => {
+            LoginComponentMessage::UserInputUsernameChange(u) => {
                 self.username = u;
                 false
             }
-            LoginMessage::UserInputPasswordChange(p) => {
+            LoginComponentMessage::UserInputPasswordChange(p) => {
                 self.password = p;
                 false
             }
-            LoginMessage::Failure(e) => {
-                console_log!("login error: {}", e);
+            LoginComponentMessage::Failure(e) => {
+                error!("login error: {}", e);
 
                 false
             }
-            LoginMessage::AskWithCookie => {
+            LoginComponentMessage::AskWithCookie => {
                 ctx.link().send_future(async {
                     match ask_with_cookie().await {
-                        Ok(r) => LoginMessage::GotResponse(r),
-                        Err(e) => LoginMessage::Failure(e),
+                        Ok(r) => LoginComponentMessage::GotResponse(r),
+                        Err(e) => LoginComponentMessage::Failure(e),
                     }
                 });
 

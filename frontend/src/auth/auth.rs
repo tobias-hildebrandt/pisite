@@ -1,9 +1,8 @@
 use std::fmt::Display;
 
 use common::LoginSuccess;
+use tracing::{info, instrument};
 use yew::{html, Component, Context, Html};
-
-use crate::console_log;
 
 use super::login::LoginComponent;
 use super::logout::LogoutComponent;
@@ -38,6 +37,7 @@ impl Default for AuthStatus {
 }
 
 /// Internal message for AuthComponent
+#[derive(Debug)]
 pub enum AuthComponentMessage {
     /// Result of a login attempt.
     /// Sent by a child component via callback.
@@ -48,12 +48,14 @@ pub enum AuthComponentMessage {
 }
 
 /// Abstraction of response to a login request.
+#[derive(Debug)]
 pub enum LoginResponse {
     Success(LoginSuccess),
     Failure,
 }
 
 /// Abstraction of response to a logout request.
+#[derive(Debug)]
 pub enum LogoutResponse {
     Success,
     Failure,
@@ -64,7 +66,9 @@ impl Component for AuthComponent {
 
     type Properties = ();
 
+    #[instrument(skip_all)]
     fn create(_ctx: &Context<Self>) -> Self {
+        info!("");
         Self::default()
     }
 
@@ -88,16 +92,17 @@ impl Component for AuthComponent {
         }
     }
 
+    #[instrument(skip(self, _ctx))]
     fn update(&mut self, _ctx: &Context<Self>, msg: Self::Message) -> bool {
         match msg {
             AuthComponentMessage::Login(response) => match response {
                 LoginResponse::Failure => {
-                    console_log!("AuthComponent Login Failure");
+                    info!("AuthComponent Login Failure");
 
                     false
                 }
                 LoginResponse::Success(s) => {
-                    console_log!("AuthComponent Login: {}", s.username);
+                    info!("AuthComponent Login: {}", s.username);
 
                     self.status = AuthStatus::LoggedIn(s);
 
