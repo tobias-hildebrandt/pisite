@@ -11,13 +11,13 @@ use axum::{
     Router,
 };
 use axum_extra::extract::cookie::{Key, PrivateCookieJar};
-use common::USER_ID_COOKIE;
+use common::{USER_ID_COOKIE, setup_tracing};
 use endpoints::{backend_state::BackendState, frontend::FrontendState};
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tower_http::services::ServeDir;
 use tracing::{error, instrument, warn, Instrument};
-use utils::{api_route, relative_path, setup_tracing};
+use utils::{api_route, relative_path};
 
 // TODO: set up env var or config file instead of consts
 const API_PREFIX: &str = "/api/";

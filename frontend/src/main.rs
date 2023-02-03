@@ -1,5 +1,5 @@
 use yew::prelude::*;
-use tracing::{info, instrument};
+use tracing::{instrument, info};
 
 mod auth;
 mod number;
@@ -18,10 +18,10 @@ fn app() -> Html {
     }
 }
 
-#[instrument]
 fn main() {
     console_error_panic_hook::set_once();
 
+    // TODO: set up custom tracing (without colors)
     tracing_wasm::set_as_global_default();
 
     info!("done setting up tracing");
