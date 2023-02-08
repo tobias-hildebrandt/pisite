@@ -1,5 +1,5 @@
 target
-frontend/dist
+web-frontend/dist
 .vscode
 
 # do not keep databases
