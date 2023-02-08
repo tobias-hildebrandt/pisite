@@ -1,5 +1,4 @@
 mod cookies;
-mod crypt;
 mod db;
 mod endpoints;
 mod utils;
@@ -11,7 +10,7 @@ use axum::{
     Router,
 };
 use axum_extra::extract::cookie::{Key, PrivateCookieJar};
-use common::{USER_ID_COOKIE, setup_tracing};
+use common::{setup_tracing, USER_ID_COOKIE};
 use endpoints::{backend_state::BackendState, frontend::FrontendState};
 use std::net::SocketAddr;
 use std::sync::Arc;

@@ -3,11 +3,12 @@ use axum::{
     response::{ErrorResponse, IntoResponse},
     Json,
 };
+use axum_extra::extract::PrivateCookieJar;
 use common::Test1;
 use hyper::StatusCode;
 use tracing::{info, instrument};
 
-use crate::{db, endpoints::backend_state::BackendState};
+use crate::{cookies, db, endpoints::backend_state::BackendState};
 
 #[axum::debug_handler]
 #[instrument]
@@ -31,13 +32,17 @@ pub async fn api_test2() -> impl IntoResponse {
 }
 
 #[axum::debug_handler]
-#[instrument(skip(connection_pool))]
+#[instrument(skip(connection_pool, private_cookies))]
 pub async fn api_test3(
     State(BackendState {
         key: _,
         connection_pool,
     }): State<BackendState>,
+    private_cookies: PrivateCookieJar,
 ) -> Result<impl IntoResponse, ErrorResponse> {
+    // verify user is authenticated
+    let _u = cookies::user_from_cookies(private_cookies, &connection_pool)?;
+
     let mut connection = connection_pool.get()?;
 
     let users = db::get_all_users(&mut connection)?;

@@ -1,10 +1,14 @@
 use axum::{extract::State, response::IntoResponse, Json};
 use axum_extra::extract::{CookieJar, PrivateCookieJar};
-use common::{LoginRequest, LoginSuccess, USER_ID_COOKIE};
+use common::{LoginRequest, LoginSuccess};
 use hyper::StatusCode;
-use tracing::{error, info, instrument, warn};
+use tracing::{info, instrument};
 
-use crate::{cookies::get_wiped_cookie_jar, db, BackendState};
+use crate::{
+    cookies::{self, get_wiped_cookie_jar},
+    db::{self, ExistingUser},
+    BackendState,
+};
 
 // TODO: add session tracking to DB?
 #[axum::debug_handler]
@@ -37,7 +41,7 @@ pub async fn login(
     };
 
     // success, add real cookies
-    let private_cookies = user.cookies(private_cookies);
+    let private_cookies = user.apply_cookies(private_cookies);
 
     info!(id = user.id, username = user.username);
 
@@ -69,35 +73,7 @@ pub async fn whoami(
     }): State<BackendState>,
     private_cookies: PrivateCookieJar,
 ) -> Result<impl IntoResponse, StatusCode> {
-    // check for user id cookie
-    let user_id = match private_cookies.get(USER_ID_COOKIE) {
-        Some(c) => c.value().to_string(),
-        None => {
-            warn!(e = "no id cookie");
-            return Err(StatusCode::UNAUTHORIZED);
-        }
-    };
-
-    // parse user id cookie
-    let user_id = match user_id.parse::<i32>() {
-        Ok(u) => u,
-        Err(_e) => {
-            warn!(e = "invalid id cookie", c = user_id);
-            return Err(StatusCode::UNAUTHORIZED);
-        }
-    };
-
-    // get database connection
-    let mut conn = match connection_pool.get() {
-        Ok(c) => c,
-        Err(e) => {
-            error!("{:?}", e);
-            return Err(StatusCode::INTERNAL_SERVER_ERROR);
-        }
-    };
-
-    // get user from DB
-    let u = db::get_user_by_id(&mut conn, user_id)?;
+    let u: ExistingUser = cookies::user_from_cookies(private_cookies, &connection_pool)?;
 
     info!(u = u.username);
 

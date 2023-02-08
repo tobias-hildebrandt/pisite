@@ -10,8 +10,9 @@ use r2d2::{self, PooledConnection};
 use rand::Rng;
 use tracing::{error, info, instrument, span, warn};
 
+use crate::db::crypt;
+
 use super::schema;
-use crate::crypt;
 
 const DEFAULT_DATABASE_LOCATION: &str = "relay.sqlite3";
 
@@ -173,7 +174,7 @@ fn direct_connection(database_location: &str) -> ConnectionResult<SqliteConnecti
 }
 
 #[instrument(skip(connection))]
-fn create_dummy_users(connection: &mut SqliteConnection, num: usize) {
+pub fn create_dummy_users(connection: &mut SqliteConnection, num: usize) -> Result<(), ConnectionError>{
     // create some dummy users
     for _ in 0..num {
         let num = rand::thread_rng().gen_range(0u16..100);
@@ -183,6 +184,8 @@ fn create_dummy_users(connection: &mut SqliteConnection, num: usize) {
             error!("error adding user with username '{username}': {e}");
         }
     }
+
+    Ok(())
 }
 
 fn create_test_user(connection: &mut SqliteConnection) -> Result<(), DBError> {
@@ -214,7 +217,6 @@ fn init(database_location: &str) -> Result<(), DBError> {
         .map_err(DBError::Migration)?;
 
     create_test_user(connection)?;
-    // create_dummy_users(connection, 10);
 
     // load all users
     let users = schema::users::dsl::users.load::<ExistingUser>(connection)?;

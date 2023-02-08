@@ -33,9 +33,11 @@ common = { path = "../common/" }
 # other crates
 rand =  "0.8.5"
 thiserror = "1.0.38"
+anyhow = "1.0.69"
 chrono = "0.4.23"
 colored = "2.0.0"
 argon2 = { version = "0.4.1", features = ["std"] }
+clap = { version = "4.1.4", features = ["derive"] }
 
 [[bin]]
 name = "relay_server"
@@ -44,3 +46,7 @@ path = "src/relay_server.rs"
 [[bin]]
 name = "main_server"
 path = "src/main_server.rs"
+
+[[bin]]
+name = "create_dummy"
+path = "src/create_dummy.rs"
