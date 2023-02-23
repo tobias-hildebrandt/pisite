@@ -3,33 +3,32 @@ use axum_extra::extract::{
     cookie::{Cookie, Expiration, SameSite},
     CookieJar, PrivateCookieJar,
 };
-use common::USER_ID_COOKIE;
+use common::SESSION_COOKIE;
 use hyper::StatusCode;
 use time::OffsetDateTime;
 use tracing::warn;
 
-use crate::db::{self, ExistingUser};
+use crate::db::{self, ExistingLoginSession, ExistingUser};
 
 const COOKIE_DURATION: time::Duration = time::Duration::WEEK;
 
-impl ExistingUser {
+impl ExistingLoginSession {
     pub fn apply_cookies(&self, private: PrivateCookieJar) -> PrivateCookieJar {
         // user id cookie
-        let mut user_id_cookie = Cookie::new(USER_ID_COOKIE, self.id.to_string());
+        let mut session_cookie = Cookie::new(SESSION_COOKIE, self.id.to_string());
 
         // set path
-        user_id_cookie.set_path("/"); // matches all subpaths
+        session_cookie.set_path("/"); // matches all subpaths
 
         // set expire
         let mut expiration = OffsetDateTime::now_utc();
         expiration += COOKIE_DURATION;
-        user_id_cookie.set_expires(Expiration::from(Some(expiration)));
+        session_cookie.set_expires(Expiration::from(Some(expiration)));
 
-        // set same site security
-        user_id_cookie.set_same_site(SameSite::Strict);
+        set_cookie_security(&mut session_cookie);
 
         // new private cookie jar, shadow old one
-        let private = private.add(user_id_cookie);
+        let private = private.add(session_cookie);
 
         return private;
     }
@@ -38,19 +37,32 @@ impl ExistingUser {
 pub fn get_wiped_cookie_jar() -> CookieJar {
     let regular = CookieJar::new();
     // add regular blank cookie that have already expired
-    let mut user_id = Cookie::new(USER_ID_COOKIE, "");
-    user_id.set_path("/"); // matches all subpaths
-    user_id.set_expires(Expiration::from(OffsetDateTime::UNIX_EPOCH));
+    let mut session_cookie = Cookie::new(SESSION_COOKIE, "");
+    session_cookie.set_path("/"); // matches all subpaths
+    session_cookie.set_expires(Expiration::from(OffsetDateTime::UNIX_EPOCH));
 
-    let regular = regular.add(user_id);
+    set_cookie_security(&mut session_cookie);
+
+    let regular = regular.add(session_cookie);
 
     return regular;
+}
+
+fn set_cookie_security(cookie: &mut Cookie) {
+    // set same site security
+    cookie.set_same_site(SameSite::Strict);
+
+    // http only
+    cookie.set_http_only(true);
+
+    // secure, tell browser to only allow on https (or localhost)
+    cookie.set_secure(true);
 }
 
 #[derive(thiserror::Error, Debug)]
 pub enum CookieAuthError {
     #[error("CookieAuthError NoId")]
-    NoId,
+    NoSessionCookie,
     #[error("CookieAuthError NotI32")]
     NotI32,
     #[error("CookieAuthError DBError: {0:?}")]
@@ -69,34 +81,34 @@ impl From<CookieAuthError> for hyper::StatusCode {
         warn!("{}", val);
 
         match val {
-            CookieAuthError::NoId => StatusCode::FORBIDDEN,
+            CookieAuthError::NoSessionCookie => StatusCode::FORBIDDEN,
             CookieAuthError::NotI32 => StatusCode::UNAUTHORIZED,
             CookieAuthError::DBError(e) => e.into(),
         }
     }
 }
 
-pub fn user_from_cookies(
+pub fn session_and_user_from_cookies(
     private: PrivateCookieJar,
     connection_pool: &db::ConnPool,
-) -> Result<ExistingUser, CookieAuthError> {
-    // get user id cookie
-    let user_id = private
-        .get(USER_ID_COOKIE)
-        .ok_or_else(|| CookieAuthError::NoId)?
+) -> Result<(ExistingLoginSession, ExistingUser), CookieAuthError> {
+    // get session id cookie
+    let session_id_str = private
+        .get(SESSION_COOKIE)
+        .ok_or_else(|| CookieAuthError::NoSessionCookie)?
         .value()
         .to_string();
 
-    // parse user id cookie
-    let user_id = user_id
+    // parse session id cookie
+    let session_id = session_id_str
         .parse::<i32>()
         .map_err(|_e| CookieAuthError::NotI32)?;
 
     // get database connection
     let mut conn = connection_pool.get()?;
 
-    // get user from DB
-    let u = db::get_user_by_id(&mut conn, user_id)?;
+    // get session and user from DB
+    let sess_and_user = db::get_session(&mut conn, session_id)?;
 
-    Ok(u)
+    Ok(sess_and_user)
 }

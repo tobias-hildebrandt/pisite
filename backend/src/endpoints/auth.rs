@@ -6,8 +6,7 @@ use tracing::{info, instrument};
 
 use crate::{
     cookies::{self, get_wiped_cookie_jar},
-    db::{self, ExistingUser},
-    BackendState,
+    db, BackendState,
 };
 
 // TODO: add session tracking to DB?
@@ -25,25 +24,26 @@ pub async fn login(
 
     // closure to allow ? operator
     // TODO: convert to a try block once the feature is stabilized in rust
-    let user = match (|| {
+    let (session, user) = match (|| {
         let conn = &mut connection_pool
             .get()
             .map_err(|e| hyper::StatusCode::from(e))?;
-        let user = db::attempt_login(conn, &login_req.username, &login_req.password)
+
+        let (session, user) = db::attempt_login(conn, &login_req.username, &login_req.password)
             .map_err(|e| hyper::StatusCode::from(e))?;
 
-        Ok(user)
+        Ok((session, user))
     })() {
-        Ok(u) => u,
+        Ok((session, user)) => (session, user),
         Err(status) => {
             return Err((status, get_wiped_cookie_jar()));
         }
     };
 
     // success, add real cookies
-    let private_cookies = user.apply_cookies(private_cookies);
+    let private_cookies = session.apply_cookies(private_cookies);
 
-    info!(id = user.id, username = user.username);
+    info!(id = user.id, username = user.username, session = session.id);
 
     return Ok((
         hyper::StatusCode::OK,
@@ -73,14 +73,15 @@ pub async fn whoami(
     }): State<BackendState>,
     private_cookies: PrivateCookieJar,
 ) -> Result<impl IntoResponse, StatusCode> {
-    let u: ExistingUser = cookies::user_from_cookies(private_cookies, &connection_pool)?;
+    let (_session, user) =
+        cookies::session_and_user_from_cookies(private_cookies, &connection_pool)?;
 
-    info!(u = u.username);
+    info!(u = user.username);
 
     return Ok((
         StatusCode::OK,
         Json(LoginSuccess {
-            username: u.username,
+            username: user.username,
         }),
     ));
 }

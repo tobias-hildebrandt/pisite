@@ -41,7 +41,7 @@ pub async fn api_test3(
     private_cookies: PrivateCookieJar,
 ) -> Result<impl IntoResponse, ErrorResponse> {
     // verify user is authenticated
-    let _u = cookies::user_from_cookies(private_cookies, &connection_pool)?;
+    let _u = cookies::session_and_user_from_cookies(private_cookies, &connection_pool)?;
 
     let mut connection = connection_pool.get()?;
 

@@ -19,6 +19,13 @@ CREATE TABLE reg_keys (
     note TEXT NOT NULL
 );
 
+CREATE TABLE login_sessions (
+    id INTEGER NOT NULL PRIMARY KEY,
+    user_id INTEGER NOT NULL,
+    expiration DATETIME NOT NULL, -- UTC
+    FOREIGN KEY(user_id) REFERENCES users(id)
+);
+
 -- pivots
 CREATE TABLE users_groups (
     id INTEGER NOT NULL PRIMARY KEY,

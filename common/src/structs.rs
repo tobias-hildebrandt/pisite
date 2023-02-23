@@ -23,5 +23,4 @@ pub struct LoginSuccess {
     pub username: String,
 }
 
-pub static USER_ID_COOKIE: &'static str = "user_id";
-pub static USERNAME_ID_COOKIE: &'static str = "username";
+pub static SESSION_COOKIE: &'static str = "session";

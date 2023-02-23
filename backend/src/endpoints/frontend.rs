@@ -7,7 +7,7 @@ use axum::{
 use hyper::{Body, Request, StatusCode};
 use tower::Service;
 use tower_http::services::ServeDir;
-use tracing::{error, info, instrument, warn};
+use tracing::{error, info, instrument};
 
 pub struct FrontendState {
     pub serve_dir: tokio::sync::Mutex<ServeDir>,
@@ -46,12 +46,10 @@ pub async fn frontend_handler(
     match frontend_state.serve_dir.lock().await.call(req).await {
         // will be a 404 if file not found
         Ok(res) => {
-            // TODO: figure out dynamic level for trace!, could be done via macro
             if res.status().is_success() {
                 info!(status = res.status().as_u16());
-            } else {
-                warn!(status = res.status().as_u16());
-            };
+            }
+            // non success will be caught by middleware layer
 
             return Ok(res);
         }

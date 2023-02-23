@@ -1,5 +1,5 @@
+use tracing::{info, instrument};
 use yew::prelude::*;
-use tracing::{instrument, info};
 
 mod auth;
 mod number;

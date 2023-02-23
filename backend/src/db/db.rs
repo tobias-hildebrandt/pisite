@@ -1,3 +1,5 @@
+use std::ops::Add;
+
 use axum::response::IntoResponse;
 use diesel::connection::SimpleConnection;
 use diesel::dsl::sql;
@@ -54,6 +56,20 @@ impl From<DBError> for hyper::StatusCode {
     }
 }
 
+#[derive(Insertable, Debug)]
+#[diesel(table_name = schema::login_sessions)]
+pub struct NewLoginSession {
+    pub user_id: i32,
+    pub expiration: time::PrimitiveDateTime,
+}
+
+#[derive(Queryable, Debug)]
+pub struct ExistingLoginSession {
+    pub id: i32,
+    pub user_id: i32,
+    pub expiry: time::PrimitiveDateTime,
+}
+
 #[derive(Queryable, Debug)]
 pub struct ExistingUser {
     pub id: i32,
@@ -88,6 +104,45 @@ fn create_dummy_user(
         .get_result(connection)?;
 
     info!("created user: {:?}", resulting_user);
+
+    Ok(())
+}
+
+pub fn get_session(
+    connection: &mut SqliteConnection,
+    id: i32,
+) -> Result<(ExistingLoginSession, ExistingUser), DBError> {
+    // wipe_expired_sessions(connection)?;
+
+    let now_utc = time::OffsetDateTime::now_utc();
+    let now_primitive = time::PrimitiveDateTime::new(now_utc.date(), now_utc.time());
+
+    let session: ExistingLoginSession = schema::login_sessions::dsl::login_sessions
+        .filter(schema::login_sessions::id.eq(id)) // correct user
+        .filter(schema::login_sessions::expiration.gt(now_primitive)) // and not yet expired
+        .first(connection)?;
+
+    let user = get_user_by_id(connection, session.user_id)?;
+
+    Ok((session, user))
+}
+
+// TODO: decide whether to actually wipe sessions or not
+#[allow(unused)]
+fn wipe_expired_sessions(connection: &mut SqliteConnection) -> Result<(), DBError> {
+    // get current time
+    let now_utc = time::OffsetDateTime::now_utc();
+    let now_primitive = time::PrimitiveDateTime::new(now_utc.date(), now_utc.time());
+
+    // find all sessions that expired before current time
+    let expired = schema::login_sessions::dsl::login_sessions
+        .filter(schema::login_sessions::expiration.lt(now_primitive));
+
+    // delete
+    let deletion = diesel::delete(expired);
+
+    // execute
+    deletion.execute(connection)?;
 
     Ok(())
 }
@@ -139,7 +194,7 @@ pub fn attempt_login(
     connection: &mut SqliteConnection,
     username: &str,
     password_plaintext: &str,
-) -> Result<ExistingUser, LoginError> {
+) -> Result<(ExistingLoginSession, ExistingUser), LoginError> {
     let u: ExistingUser = schema::users::dsl::users
         .filter(schema::users::username.eq(username))
         .first(connection)
@@ -148,11 +203,33 @@ pub fn attempt_login(
     let valid_login = crypt::verify_password(password_plaintext, &u.password_crypt)
         .map_err(|e| LoginError::DBError(DBError::Crypt(e)))?;
 
-    if valid_login {
-        Ok(u)
-    } else {
-        Err(LoginError::LoginFail)
+    if !valid_login {
+        return Err(LoginError::LoginFail);
     }
+
+    let now = time::OffsetDateTime::now_utc();
+
+    let expiry_utc = now.add(time::Duration::WEEK);
+
+    let session = NewLoginSession {
+        user_id: u.id,
+        expiration: time::PrimitiveDateTime::new(expiry_utc.date(), expiry_utc.time()),
+    };
+
+    diesel::insert_into(schema::login_sessions::table)
+        .values(&session)
+        .execute(connection)
+        .map_err(|e| LoginError::DBError(DBError::Query(e)))?;
+
+    // can't join becauseof last_insert_rowid()?
+    let resulting_session: ExistingLoginSession = schema::login_sessions::dsl::login_sessions
+        .find(sql("last_insert_rowid()"))
+        .first(connection)
+        .map_err(|e| LoginError::DBError(DBError::Query(e)))?;
+
+    let user: ExistingUser = get_user_by_id(connection, resulting_session.user_id)?;
+
+    Ok((resulting_session, user))
 }
 
 fn database_location() -> String {
@@ -174,7 +251,10 @@ fn direct_connection(database_location: &str) -> ConnectionResult<SqliteConnecti
 }
 
 #[instrument(skip(connection))]
-pub fn create_dummy_users(connection: &mut SqliteConnection, num: usize) -> Result<(), ConnectionError>{
+pub fn create_dummy_users(
+    connection: &mut SqliteConnection,
+    num: usize,
+) -> Result<(), ConnectionError> {
     // create some dummy users
     for _ in 0..num {
         let num = rand::thread_rng().gen_range(0u16..100);

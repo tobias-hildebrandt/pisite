@@ -161,7 +161,7 @@ async fn try_login(req: LoginRequest) -> Result<LoginResponse, gloo_net::Error> 
 
 async fn ask_with_cookie() -> Result<LoginResponse, gloo_net::Error> {
     let response = Request::new("/api/whoami")
-        .method(Method::POST)
+        .method(Method::GET)
         .send()
         .await?;
 
