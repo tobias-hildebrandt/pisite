@@ -2,5 +2,6 @@
 members = [
     "backend",
     "web-frontend",
+    "cli-frontend",
     "common",
 ]
